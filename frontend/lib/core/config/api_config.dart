@@ -115,7 +115,13 @@ class ApiConfig {
   static String get pharmacyExpiryAlerts => '$pharmacyBase/expiry-alerts/';
   static String get pharmacyDispense => '$pharmacyBase/dispense/';
   static String get pharmacyReports => '$pharmacyBase/reports/';
-  static String get pharmacyProphetForecast => '$pharmacyBase/prophet-forecast/';
+
+  // Pharmacy notification endpoints
+  static String get pharmacyNotifications => '$pharmacyBase/notifications/';
+  static String get pharmacyNotificationsGenerate => '$pharmacyBase/notifications/generate/';
+  static String get pharmacyNotificationsUnreadCount => '$pharmacyBase/notifications/unread-count/';
+  static String get pharmacyNotificationsMarkRead => '$pharmacyBase/notifications/mark-read/';
+  static String pharmacyNotificationDismiss(int id) => '$pharmacyBase/notifications/$id/dismiss/';
 
   // Helper to build pharmacy URLs with ID
   static String pharmacyMedicineDetail(int id) => '$pharmacyBase/medicines/$id/';
