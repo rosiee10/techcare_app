@@ -29,7 +29,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure--+hl+2gez7)yy7liq#_)co%lpz
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['103.6.168.106', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 
@@ -65,9 +65,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -181,25 +181,19 @@ REST_FRAMEWORK = {
 }
 
 # CORS settings for Flutter frontend
-# Development: Allow localhost origins
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:62610",  # Flutter web default port
-    "http://127.0.0.1:62610",
-    "http://localhost:3000",   # Alternative dev port
-    "http://127.0.0.1:3000",
-    "http://localhost:57687",  # Current Flutter dev port
-    "http://127.0.0.1:57687",
-    "http://localhost:65441", 
-    "http://127.0.0.1:65441",
-    "http://localhost:5441",
-    "http://127.0.0.1:5441", 
-]
-
-# For production, replace with your actual domain:
-# CORS_ALLOWED_ORIGINS = ["https://yourdomain.com"]
-
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+CORS_PREFLIGHT_MAX_AGE = 86400
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
 CORS_ALLOW_HEADERS = [
+    '*',
     'accept',
     'accept-encoding',
     'authorization',
@@ -209,6 +203,14 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:57687",
+    "http://127.0.0.1:57687",
+    "http://103.6.168.106",
+    "http://103.6.168.106:8000",
+    "http://103.6.168.106:8080",
 ]
 
 # Security Headers
