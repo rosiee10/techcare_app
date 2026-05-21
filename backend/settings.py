@@ -24,12 +24,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure--+hl+2gez7)yy7liq#_)co%lpzcdy4^7$1_@8muubkcysg^o!9'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure--+hl+2gez7)yy7liq#_)co%lpzcdy4^7$1_@8muubkcysg^o!9')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,103.6.168.106,0.0.0.0').split(',')
 
 
 # Application definition
@@ -61,10 +61,14 @@ INSTALLED_APPS = [
     'apps.socialwork',
     'apps.blockchain',
     'apps.ph_locations',
+    'apps.patient',
+    'apps.chief_nurse',
+    'apps.notifications',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -97,19 +101,33 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'techcare_db'),
-        'USER': os.getenv('DB_USER', 'postgres'),
-        'PASSWORD': os.getenv('DB_PASSWORD', '1234'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
-        'OPTIONS': {
-            'options': '-c search_path=pch,public'
-        },
+import dj_database_url
+
+# Database configuration - supports both local and production (Render)
+if os.getenv('DATABASE_URL'):
+    # Production: Use DATABASE_URL from Render
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.getenv('DATABASE_URL'),
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
-}
+else:
+    # Development: Use individual database settings
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'techcare_db'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', '1234'),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            'OPTIONS': {
+                'options': '-c search_path=pch,public'
+            },
+        }
+    }
 
 
 # Password validation
@@ -166,6 +184,8 @@ REST_FRAMEWORK = {
 # CORS settings for Flutter frontend
 # Development: Allow localhost origins
 CORS_ALLOWED_ORIGINS = [
+    "http://103.6.168.106:5050",
+    "http://103.6.168.106",
     "http://localhost:62610",  # Flutter web default port
     "http://127.0.0.1:62610",
     "http://localhost:3000",   # Alternative dev port
@@ -175,7 +195,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:65441", 
     "http://127.0.0.1:65441",
     "http://localhost:5441",
-    "http://127.0.0.1:5441", 
+    "http://127.0.0.1:5441",
+    "http://localhost:6541",   # Current Flutter dev port
+    "http://127.0.0.1:6541",
 ]
 
 # For production, replace with your actual domain:
@@ -211,8 +233,8 @@ X_FRAME_OPTIONS = 'DENY'
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),      # 7 days as requested
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),    # 30-day refresh tokens
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),     # 1 hour for production
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),     # 7-day refresh tokens
     'ROTATE_REFRESH_TOKENS': True,                   # Refresh token rotation enabled
     'BLACKLIST_AFTER_ROTATION': True,                # Blacklist old refresh tokens for security
     'UPDATE_LAST_LOGIN': True,                       # Track last login time

@@ -46,8 +46,26 @@ urlpatterns = [
     # Philippine Locations API
     path('api/locations/', include('apps.ph_locations.urls')),
     
-    # OPD Patient API
+    # OPD API (includes patients and rooms)
+    path('api/opd/', include('apps.opd.urls')),
+    
+    # Legacy patient API route (for backward compatibility)
     path('api/patients/', include('apps.opd.urls')),
+    
+    # Patient Portal API
+    path('api/patient/', include('apps.patient.urls')),
+    
+    # Chief Nurse API
+    path('api/chief-nurse/', include('apps.chief_nurse.urls')),
+    
+    # Pharmacy API
+    path('api/pharmacy/', include('apps.pharmacy.urls')),
+    
+    # Medistock API
+    path('api/medistock/', include('apps.medistock.urls')),
+
+    # Notifications API
+    path('api/notifications/', include('apps.notifications.urls')),
 ]
 
 # Serve media files in development
