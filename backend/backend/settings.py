@@ -120,7 +120,7 @@ else:
         'NAME': 'techcare_db',
         'USER': 'techcareuser',
         'PASSWORD': 'TechcarePCH@2026',
-        'HOST': '103.6.168.106',
+        'HOST': 'db',
         'PORT': '5432',
         'OPTIONS': {
     'options': '-c search_path=pch,public'
