@@ -569,24 +569,44 @@ class CartFormCreateView(APIView):
                 receipt_no = 'DR-CART-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
                 total_sheet_amount = 0
                 
+                # Use found admission or search for one if missing
+                admission_id = cart_form.admission_id
+                if not admission_id:
+                    with connection.cursor() as cursor:
+                        cursor.execute("""
+                            SELECT admission_id FROM ipd_notice_of_admission 
+                            WHERE patient_id = %s AND status IN ('approved', 'pending')
+                            ORDER BY admission_date DESC, submitted_date DESC LIMIT 1
+                        """, [cart_form.patient_id])
+                        row = cursor.fetchone()
+                        if row:
+                            admission_id = row[0]
+                
                 with connection.cursor() as cursor:
+                    # 3.0 Ensure admission_id is nullable in the database if it's still NULL
+                    try:
+                        cursor.execute("ALTER TABLE pharmacy_dispense_receipts ALTER COLUMN admission_id DROP NOT NULL")
+                    except:
+                        pass
+
                     # 3.1 Insert into pharmacy_dispense_receipts
                     cursor.execute("""
-                        INSERT INTO pch.pharmacy_dispense_receipts (
+                        INSERT INTO pharmacy_dispense_receipts (
                             receipt_no, ipd_cart_form_id, 
                             patient_id, admission_id, from_location_id, dispensing_date, 
-                            total_amount, trail
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            total_amount, trail, received_status
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         RETURNING receipt_id
                     """, [
                         receipt_no,
                         cart_form.cart_form_id,
                         cart_form.patient_id,
-                        cart_form.admission_id,
+                        admission_id,
                         2, # From Location ID: 2 (Cart)
                         timezone.now().date(),
                         0, # Will update after items
-                        trail
+                        trail,
+                        'RECEIVED'
                     ])
                     receipt_id = cursor.fetchone()[0]
 
@@ -614,7 +634,7 @@ class CartFormCreateView(APIView):
                             
                             # 3.2 Create Receipt Item (FOR BILLING)
                             cursor.execute("""
-                                INSERT INTO pch.pharmacy_dispense_receipt_items (
+                                INSERT INTO pharmacy_dispense_receipt_items (
                                     receipt_id, medicine_id, item_code, 
                                     item_description, quantity, unit, 
                                     unit_cost, total_cost, batch_id, from_location_id, line_status
@@ -627,14 +647,14 @@ class CartFormCreateView(APIView):
 
                             # Deduct from Inventory Balance (Location 2)
                             cursor.execute("""
-                                UPDATE pch.pharmacy_inventory_balance
+                                UPDATE pharmacy_inventory_balance
                                 SET qty_on_hand = qty_on_hand - %s
                                 WHERE medicine_id = %s AND batch_id = %s AND location_id = 2
                             """, [quantity, medicine_id, batch_id])
                             
                             # Log Transaction (OUT from Location 2)
                             cursor.execute("""
-                                INSERT INTO pch.pharmacy_transactions (
+                                INSERT INTO pharmacy_transactions (
                                     transaction_datetime, transaction_type, medicine_id, 
                                     batch_id, from_location_id, qty, reference_type, 
                                     reference_id, service_source, remarks, trail
@@ -647,7 +667,7 @@ class CartFormCreateView(APIView):
                     
                     # 3.3 Update final total in receipt
                     cursor.execute("""
-                        UPDATE pch.pharmacy_dispense_receipts 
+                        UPDATE pharmacy_dispense_receipts 
                         SET total_amount = %s WHERE receipt_id = %s
                     """, [total_sheet_amount, receipt_id])
                 
