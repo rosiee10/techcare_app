@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from apps.opd.models import PatientProfiling
 from .models import (
-    IpdPatientAdmissions,
+    IpdNoticeOfAdmission,
     DispensingSheet,
     DispensingSheetItem,
     CartForm,
@@ -53,25 +53,22 @@ class PatientProfilingBasicSerializer(serializers.ModelSerializer):
         return None
 
 
-class IpdPatientAdmissionsSerializer(serializers.ModelSerializer):
-    """Serializer for IPD admission details"""
+class IpdNoticeOfAdmissionSerializer(serializers.ModelSerializer):
+    """Serializer for IPD admission details (Notice of Admission)"""
     room_display = serializers.SerializerMethodField()
     
     class Meta:
-        model = IpdPatientAdmissions
+        model = IpdNoticeOfAdmission
         fields = [
-            'admission_id', 'admission_date', 'admission_time',
-            'discharge_date', 'discharge_time', 'room', 'department',
-            'room_display', 'attending_doctor_id', 'admitting_diagnosis', 'status'
+            'admission_id', 'hospital_id', 'admission_date', 
+            'admitting_impression', 'admitting_physician', 'department',
+            'room_display', 'status', 'bp', 'pr', 'temp', 'rr', 'weight', 'height', 'o2_sat',
+            'submitted_by', 'submitted_date', 'approved_by', 'approved_date'
         ]
     
     def get_room_display(self, obj):
-        room_info = f"Room {obj.room.room_number}" if obj.room else ""
-        dept_info = obj.department.department_name if obj.department else ""
-        
-        if room_info and dept_info:
-            return f"{dept_info} - {room_info}"
-        return dept_info or room_info or "N/A"
+        # The new table doesn't have room_id, but has department
+        return obj.department or "IPD Ward"
 
 
 class DispensingSheetItemSerializer(serializers.ModelSerializer):
@@ -135,8 +132,8 @@ class DispensingSheetListSerializer(serializers.ModelSerializer):
         return obj.items.count()
 
     def get_ward(self, obj):
-        if obj.admission and obj.admission.room:
-            return f"Room {obj.admission.room.room_number}"
+        if obj.admission:
+            return obj.admission.department or "IPD Ward"
         return "IPD Ward"
 
 
@@ -146,8 +143,8 @@ class DispensingSheetDetailSerializer(serializers.ModelSerializer):
     patient_hospital_id = serializers.CharField(source='patient.hospital_id', read_only=True)
     patient_address = serializers.SerializerMethodField()
     admission_date = serializers.DateField(source='admission.admission_date', read_only=True)
-    admission_time = serializers.TimeField(source='admission.admission_time', read_only=True)
-    discharge_date = serializers.DateField(source='admission.discharge_date', read_only=True)
+    admission_time = serializers.DateTimeField(source='admission.submitted_date', read_only=True)
+    discharge_date = serializers.SerializerMethodField()
     ward = serializers.SerializerMethodField()
     items = DispensingSheetItemSerializer(many=True, read_only=True)
     total_amount = serializers.SerializerMethodField()
@@ -184,9 +181,14 @@ class DispensingSheetDetailSerializer(serializers.ModelSerializer):
         return ", ".join([str(part) for part in parts if part])
 
     def get_ward(self, obj):
-        if obj.admission and obj.admission.room:
-            return f"Room {obj.admission.room.room_number}"
+        if obj.admission:
+            return obj.admission.department or "IPD Ward"
         return "IPD Ward"
+
+    def get_discharge_date(self, obj):
+        # Since discharge_date is gone from admission table, we return None for now
+        # Discharge details are likely in ipd_discharge_notice table
+        return None
 
 
 class DispensingSheetCreateSerializer(serializers.ModelSerializer):
@@ -241,7 +243,7 @@ class CartFormListSerializer(serializers.ModelSerializer):
 class CartFormDetailSerializer(serializers.ModelSerializer):
     """Detail serializer for cart forms with items"""
     patient = PatientProfilingBasicSerializer(read_only=True)
-    admission = IpdPatientAdmissionsSerializer(read_only=True)
+    admission = IpdNoticeOfAdmissionSerializer(read_only=True)
     items = CartFormItemSerializer(many=True, read_only=True)
     
     class Meta:

@@ -67,10 +67,10 @@ class IpdRooms(models.Model):
         return f"Room {self.room_number} - Bed {self.bed_code}"
 
 
-class IpdPatientAdmissions(models.Model):
+class IpdNoticeOfAdmission(models.Model):
     """
-    IPD Patient Admissions model
-    Maps to existing ipd_patient_admissions table for admission details
+    IPD Notice of Admission model
+    Maps to pch.ipd_notice_of_admission table
     """
     admission_id = models.AutoField(primary_key=True)
     patient = models.ForeignKey(
@@ -79,21 +79,35 @@ class IpdPatientAdmissions(models.Model):
         db_column='patient_id',
         related_name='ipd_admissions'
     )
-    admission_date = models.DateField()
-    admission_time = models.TimeField()
-    discharge_date = models.DateField(blank=True, null=True)
-    discharge_time = models.TimeField(blank=True, null=True)
-    room = models.ForeignKey(IpdRooms, models.DO_NOTHING, blank=True, null=True)
-    department = models.ForeignKey(IpdDepartments, models.DO_NOTHING, blank=True, null=True)
-    attending_doctor_id = models.IntegerField(blank=True, null=True)
-    admitting_diagnosis = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=20, blank=True, null=True)
-    created_by = models.IntegerField(blank=True, null=True)
-    created_at = models.DateTimeField(blank=True, null=True)
-    updated_at = models.DateTimeField(blank=True, null=True)
+    hospital_id = models.CharField(max_length=20, blank=True, null=True)
+    admission_date = models.DateField(blank=True, null=True)
+    admitting_impression = models.TextField(blank=True, null=True, db_column='admitting_impression')
+    
+    # Vital signs at admission
+    bp = models.CharField(max_length=20, blank=True, null=True)
+    pr = models.CharField(max_length=20, blank=True, null=True)
+    temp = models.CharField(max_length=20, blank=True, null=True)
+    rr = models.CharField(max_length=20, blank=True, null=True)
+    weight = models.CharField(max_length=20, blank=True, null=True)
+    height = models.CharField(max_length=20, blank=True, null=True)
+    o2_sat = models.CharField(max_length=20, blank=True, null=True)
+    
+    admitting_physician = models.CharField(max_length=100, blank=True, null=True)
+    department = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Status: pending, approved, rejected
+    status = models.CharField(max_length=20, default='pending')
+    
+    submitted_by = models.CharField(max_length=100, blank=True, null=True)
+    submitted_date = models.DateTimeField(blank=True, null=True)
+    approved_by = models.CharField(max_length=100, blank=True, null=True)
+    approved_date = models.DateTimeField(blank=True, null=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'ipd_patient_admissions'
+        db_table = 'ipd_notice_of_admission'
         managed = False
 
     def __str__(self):
@@ -118,7 +132,7 @@ class DispensingSheet(models.Model):
     
     # Link to admission for ward/room context
     admission = models.ForeignKey(
-        IpdPatientAdmissions,
+        IpdNoticeOfAdmission,
         on_delete=models.CASCADE,
         db_column='admission_id',
         related_name='dispensing_sheets',
@@ -220,7 +234,7 @@ class CartForm(models.Model):
     
     # Link to admission for ward/room context
     admission = models.ForeignKey(
-        IpdPatientAdmissions,
+        IpdNoticeOfAdmission,
         on_delete=models.CASCADE,
         db_column='admission_id',
         related_name='cart_forms',

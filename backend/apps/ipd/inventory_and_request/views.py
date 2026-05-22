@@ -14,7 +14,7 @@ from django.db import connection, transaction
 from apps.opd.models import PatientProfiling
 from apps.pharmacy.models import PharmacyLocation
 from .models import (
-    IpdPatientAdmissions,
+    IpdNoticeOfAdmission,
     DispensingSheet,
     DispensingSheetItem,
     CartForm,
@@ -23,7 +23,7 @@ from .models import (
 )
 from .serializers import (
     PatientProfilingBasicSerializer,
-    IpdPatientAdmissionsSerializer,
+    IpdNoticeOfAdmissionSerializer,
     DispensingSheetListSerializer,
     DispensingSheetDetailSerializer,
     DispensingSheetCreateSerializer,
@@ -216,15 +216,16 @@ class IpdPatientSearchView(APIView):
             
             results = []
             for patient in patients:
-                # Get current active admission
-                admission = IpdPatientAdmissions.objects.filter(
+                # Get current active admission (Notice of Admission)
+                # status can be 'approved' or 'pending' for active inpatients in the new system
+                admission = IpdNoticeOfAdmission.objects.filter(
                     patient=patient,
-                    status='ADMITTED'
-                ).order_by('-admission_date', '-admission_time').first()
+                    status__in=['approved', 'pending']
+                ).order_by('-admission_date', '-submitted_date').first()
                 
                 patient_data = PatientProfilingBasicSerializer(patient).data
                 if admission:
-                    patient_data['admission'] = IpdPatientAdmissionsSerializer(admission).data
+                    patient_data['admission'] = IpdNoticeOfAdmissionSerializer(admission).data
                 else:
                     patient_data['admission'] = None
                 
@@ -257,14 +258,14 @@ class IpdPatientDetailView(APIView):
             )
             
             # Get current admission
-            admission = IpdPatientAdmissions.objects.filter(
+            admission = IpdNoticeOfAdmission.objects.filter(
                 patient=patient,
-                status='ACTIVE'
+                status__in=['approved', 'pending']
             ).order_by('-admission_date').first()
             
             patient_data = PatientProfilingBasicSerializer(patient).data
             if admission:
-                patient_data['admission'] = IpdPatientAdmissionsSerializer(admission).data
+                patient_data['admission'] = IpdNoticeOfAdmissionSerializer(admission).data
             
             return Response({
                 'success': True,
