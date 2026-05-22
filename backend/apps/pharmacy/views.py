@@ -1262,13 +1262,15 @@ class PharmacyDispenseReceiptViewSet(viewsets.ModelViewSet):
                     SELECT 
                         i.receipt_id,
                         i.receipt_item_id,
-                        m.medicine_name,
+                        COALESCE(m.medicine_name, i.item_description) as item_name,
                         i.quantity,
                         i.unit_cost,
                         i.total_cost,
                         r.dispensing_date,
                         r.created_at,
-                        t.transaction_datetime
+                        t.transaction_datetime,
+                        i.supply_id,
+                        i.item_type
                     FROM pharmacy_dispense_receipt_items i
                     LEFT JOIN pharmacy_medicines m ON i.medicine_id = m.medicine_id
                     LEFT JOIN pharmacy_dispense_receipts r ON i.receipt_id = r.receipt_id
@@ -1291,16 +1293,18 @@ class PharmacyDispenseReceiptViewSet(viewsets.ModelViewSet):
             items_list = []
             calculated_total = 0
             for item in items_data:
-                # item is a tuple from raw SQL: (receipt_id, receipt_item_id, medicine_name, quantity, unit_cost, total_cost, dispensing_date, created_at, transaction_datetime)
+                # item is a tuple from raw SQL: (receipt_id, receipt_item_id, item_name, quantity, unit_cost, total_cost, dispensing_date, created_at, transaction_datetime, supply_id, item_type)
                 receipt_id = item[0]
                 receipt_item_id = item[1]
-                medicine_name = item[2]
+                item_name = item[2]
                 quantity = item[3]
                 unit_cost = item[4]
                 total_cost = item[5]
                 dispensing_date = item[6]
                 created_at = item[7]
                 transaction_datetime = item[8]
+                supply_id = item[9]
+                item_type = item[10]
 
                 # MANDATORY: Strictly use quantity for accuracy as actual_used_quantity is merged into it
                 actual_qty = float(quantity or 0)
@@ -1314,11 +1318,13 @@ class PharmacyDispenseReceiptViewSet(viewsets.ModelViewSet):
                 items_list.append({
                     'receipt_id': str(receipt_id),
                     'receipt_item_id': str(receipt_item_id),
-                    'medicine_name': str(medicine_name or 'Unknown'),
+                    'item_name': str(item_name or 'Unknown'),
                     'quantity': str(actual_qty), # Final quantity
                     'unit_cost': str(unit_cost),
                     'total_cost': "{:.2f}".format(line_total),
-                    'dispensing_date': date_to_display.isoformat() if date_to_display else 'N/A'
+                    'dispensing_date': date_to_display.isoformat() if date_to_display else 'N/A',
+                    'supply_id': supply_id,
+                    'item_type': item_type or ('SUPPLY' if supply_id else 'MEDICINE')
                 })
 
             results.append({
@@ -1370,6 +1376,7 @@ class PharmacyDispenseReceiptViewSet(viewsets.ModelViewSet):
                     medicine_id=medicine_id,
                     item_code=medicine.medicine_code if medicine else str(medicine_id),
                     item_description=medicine_name,
+                    item_type='MEDICINE',
                     quantity=final_qty,
                     unit=medicine.unit if medicine else 'Piece',
                     unit_cost=unit_cost,

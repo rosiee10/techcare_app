@@ -352,6 +352,8 @@ class PharmacyDispenseReceiptItem(models.Model):
     receipt_item_id = models.AutoField(primary_key=True)
     dispense_receipt = models.ForeignKey(PharmacyDispenseReceipt, on_delete=models.CASCADE, related_name='items', db_column='receipt_id')
     medicine = models.ForeignKey(PharmacyMedicine, on_delete=models.CASCADE, null=True, blank=True, db_column='medicine_id')
+    supply_id = models.IntegerField(null=True, blank=True)
+    item_type = models.CharField(max_length=20, null=True, blank=True)
     item_code = models.CharField(max_length=30)
     item_description = models.CharField(max_length=255, blank=True, null=True)
     quantity = models.DecimalField(max_digits=12, decimal_places=2)
