@@ -1,0 +1,2083 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../opd_clerk/data/models/patient_model.dart';
+import '../providers/patient_profile_provider.dart';
+import '../widgets/patient_profile/patient_profile_card.dart';
+import '../widgets/patient_profile/quick_actions_panel.dart';
+import '../widgets/patient_profile/visit_history_table.dart';
+
+/// Patient Profile Page - Main entry point
+/// 
+/// Clean architecture using:
+/// - Provider for state management (PatientProfileProvider)
+/// - Reusable widgets for UI components
+/// - Separation of concerns
+class PatientProfilePage extends StatelessWidget {
+  final String hospitalId;
+  final VoidCallback? onBack;
+
+  const PatientProfilePage({
+    super.key,
+    required this.hospitalId,
+    this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (_) => PatientProfileProvider(hospitalId: hospitalId),
+      child: _PatientProfileView(hospitalId: hospitalId, onBack: onBack),
+    );
+  }
+}
+
+class _PatientProfileView extends StatelessWidget {
+  final String hospitalId;
+  final VoidCallback? onBack;
+
+  const _PatientProfileView({
+    required this.hospitalId,
+    this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = AppTheme.of(context);
+    final provider = context.watch<PatientProfileProvider>();
+
+    if (provider.isLoading) {
+      return _LoadingView(theme: theme);
+    }
+
+    if (provider.patient == null) {
+      return _ErrorView(onBack: onBack);
+    }
+
+    return _ProfileContent(
+      patient: provider.patient!,
+      onBack: onBack,
+    );
+  }
+}
+
+/// Loading state view
+class _LoadingView extends StatelessWidget {
+  final AppThemeData theme;
+
+  const _LoadingView({required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: CircularProgressIndicator(color: theme.buttonPrimary),
+    );
+  }
+}
+
+/// Error/not found state view
+class _ErrorView extends StatelessWidget {
+  final VoidCallback? onBack;
+
+  const _ErrorView({this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = AppTheme.of(context);
+
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.person_outline, size: 48, color: theme.textMuted),
+          const SizedBox(height: 16),
+          Text(
+            'Patient not found',
+            style: TextStyle(color: theme.textSecondary, fontSize: 16),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () {
+              if (onBack != null) {
+                onBack!();
+              } else {
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Back to Patient List'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Main profile content with two-column layout
+class _ProfileContent extends StatelessWidget {
+  final PatientModel patient;
+  final VoidCallback? onBack;
+
+  const _ProfileContent({
+    required this.patient,
+    this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = AppTheme.of(context);
+    final provider = context.read<PatientProfileProvider>();
+
+    return Container(
+      color: theme.pageBackground,
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Back Button
+            _BackButton(onBack: onBack),
+            // Main Content
+            Padding(
+              padding: const EdgeInsets.fromLTRB(32, 0, 32, 32),
+              child: _ProfileLayout(
+                patient: patient,
+                displayName: provider.getDisplayNameWithInitial(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Back button widget
+class _BackButton extends StatelessWidget {
+  final VoidCallback? onBack;
+
+  const _BackButton({this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = AppTheme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 32, top: 20, bottom: 20),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                theme.buttonPrimary,
+                theme.buttonPrimary.withOpacity(0.8),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: theme.buttonPrimary.withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                if (onBack != null) {
+                  onBack!();
+                } else {
+                  Navigator.of(context).pop();
+                }
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.arrow_back, size: 18, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text(
+                      'Back to List',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Two-column profile layout
+class _ProfileLayout extends StatelessWidget {
+  final PatientModel patient;
+  final String displayName;
+
+  const _ProfileLayout({
+    required this.patient,
+    required this.displayName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Left: Patient Profile Card (25%)
+        Expanded(
+          flex: 1,
+          child: _PatientInfoCard(
+            patient: patient,
+            displayName: displayName,
+          ),
+        ),
+        const SizedBox(width: 24),
+        // Right: Quick Actions (75%)
+        Expanded(
+          flex: 3,
+          child: _QuickActionsSection(),
+        ),
+      ],
+    );
+  }
+}
+
+/// Patient info card wrapper
+class _PatientInfoCard extends StatelessWidget {
+  final PatientModel patient;
+  final String displayName;
+
+  const _PatientInfoCard({
+    required this.patient,
+    required this.displayName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PatientProfileCard(
+      patient: patient,
+      displayName: displayName,
+      onFullInfoPressed: () => _showFullInfoDialog(context),
+    );
+  }
+
+  void _showFullInfoDialog(BuildContext context) {
+    // TODO: Extract FullInfoDialog to separate widget
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Patient Information'),
+        content: Text('Full info dialog for ${patient.fullName}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Quick actions section with conditional visit history overlay
+class _QuickActionsSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<PatientProfileProvider>();
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: provider.showVisitHistory
+            ? VisitHistoryTable(
+                key: const ValueKey('visit_history'),
+                onBackPressed: () => provider.hideVisitHistory(),
+                onAddVisitPressed: () => _addVisit(context),
+              )
+            : QuickActionsPanel(
+                key: const ValueKey('quick_actions'),
+                onMedicalRecordsPressed: () => _showMedicalRecords(context),
+                onPrescribePressed: () => _showPrescription(context),
+                onVitalsPressed: () => _showVitals(context),
+                onLabOrderPressed: () => _showLabOrder(context),
+              ),
+      ),
+    );
+  }
+
+  void _addVisit(BuildContext context) {
+    Navigator.pushNamed(
+      context,
+      '/opd/add-visit',
+      arguments: context.read<PatientProfileProvider>().patient?.hospitalId,
+    );
+  }
+
+  void _showMedicalRecords(BuildContext context) {
+    // TODO: Navigate to medical records
+  }
+
+  void _showPrescription(BuildContext context) {
+    // TODO: Navigate to prescription
+  }
+
+  void _showVitals(BuildContext context) {
+    // TODO: Navigate to vitals
+  }
+
+  void _showLabOrder(BuildContext context) {
+    // TODO: Navigate to lab order
+  }
+}
+
+            // Add Visit Button - Only for CLERK role
+            if (Provider.of<AuthProvider>(context, listen: false).role?.toUpperCase() == 'OPD CLERK' ||
+                Provider.of<AuthProvider>(context, listen: false).role?.toUpperCase() == 'CLERK')
+              GestureDetector(
+                onTap: () => _addVisit(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        theme.buttonPrimary,
+                        theme.buttonPrimary.withOpacity(0.8),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.buttonPrimary.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.add,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Add Visit',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // Visit count
+        Text(
+          '(${visits.length} visits)',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Visits table with fixed height
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 300),
+          child: SingleChildScrollView(
+            child: Table(
+              columnWidths: const {
+                0: FlexColumnWidth(2.5),  // Date
+                1: FlexColumnWidth(1.5),  // Queue No
+                2: FlexColumnWidth(1.5),  // Service
+                3: FlexColumnWidth(3),    // Chief Complaint
+                4: FlexColumnWidth(2),    // Doctor
+                5: FlexColumnWidth(1.2),  // Status
+              },
+              children: [
+                // Header row - Blue background
+                TableRow(
+                  decoration: BoxDecoration(
+                    color: theme.buttonPrimary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  children: [
+                    _buildTableHeader('DATE', theme),
+                    _buildTableHeader('QUEUE NO', theme),
+                    _buildTableHeader('SERVICE', theme),
+                    _buildTableHeader('CHIEF COMPLAINT', theme),
+                    _buildTableHeader('DOCTOR', theme),
+                    _buildTableHeader('STATUS', theme),
+                  ],
+                ),
+                // Data rows
+                ...visits.map((visit) => TableRow(
+                  children: [
+                    _buildTableCell(visit['date']!, theme, isDate: true),
+                    _buildTableCell(visit['queueNo']!, theme),
+                    _buildTableCell(visit['service']!, theme, isLink: true),
+                    _buildTableCell(visit['complaint']!, theme),
+                    _buildTableCell(visit['doctor']!, theme),
+                    _buildStatusCell(visit['status']!),
+                  ],
+                )),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Footer
+        Text(
+          'Total visits: ${visits.length} • Last visit: ${visits.first['date']}',
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[500],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTableHeader(String text, AppThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: theme.buttonPrimary,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTableCell(String text, AppThemeData theme, {bool isDate = false, bool isLink = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: isDate ? FontWeight.w600 : FontWeight.w400,
+          color: isLink ? theme.buttonPrimary : Colors.black87,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+
+  // Helper method to display name with middle initial only (e.g., "MANALOTO, PEPITO D")
+  String _getDisplayNameWithInitial() {
+    final middleInitial = _patient!.middleName != null && _patient!.middleName!.isNotEmpty
+        ? ' ${_patient!.middleName![0].toUpperCase()}'
+        : '';
+    final ext = _patient!.extension != null && _patient!.extension!.isNotEmpty
+        ? ' ${_patient!.extension}'
+        : '';
+    return '${_patient!.lastName}, ${_patient!.firstName}$middleInitial$ext';
+  }
+
+  Widget _buildStatusCell(String status) {
+    final isDone = status.toLowerCase() == 'done';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDone ? Colors.green[50] : Colors.orange[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDone ? Colors.green[200]! : Colors.orange[200]!,
+            width: 1,
+          ),
+        ),
+        child: Text(
+          status,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: isDone ? Colors.green[700] : Colors.orange[700],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPatientRecordsSection(AppThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Quick Actions',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.black,
+            letterSpacing: 0.3,
+          ),
+        ),
+        const SizedBox(height: 20),
+        // Action Buttons
+        Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            // Add Visit Button
+            _buildActionButton(
+              theme,
+              'Add Visit',
+              Icons.add_circle_outline,
+              () => _addVisit(context),
+              isPrimary: true,
+            ),
+            // Medical Records Button
+            _buildActionButton(
+              theme,
+              'Medical Records',
+              Icons.description_outlined,
+              () {
+                // Navigate to medical records
+              },
+              isPrimary: false,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _showFullInfoDialog(AppThemeData theme) {
+    // State variables declared outside builder to persist across rebuilds
+    bool isEditMode = false;
+    String? emergencyProvinceCode;
+    String? emergencyCityCode;
+    String? emergencyBarangayCode;
+    // Flags to prevent initial load from overwriting user selections
+    bool hasInitiallyLoadedEmergencyAddress = false;
+    
+    // Reset patient address instance variables and load from database
+    _dialogProvinceCode = null;
+    _dialogCityCode = null;
+    _dialogBarangayCode = null;
+    _dialogAddressLoaded = false;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            // Load patient address codes from database (only once)
+            if (!_dialogAddressLoaded && _patient?.province != null && _patient!.province!.isNotEmpty) {
+              _dialogAddressLoaded = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                print('DEBUG: Loading patient address codes from DB');
+                await _loadAddressCodesFromDatabase(
+                  setState,
+                  (code) { 
+                    if (_dialogProvinceCode == null) {
+                      _dialogProvinceCode = code;
+                      print('DEBUG: Set _dialogProvinceCode from DB: $code');
+                    }
+                  },
+                  (code) { if (_dialogCityCode == null) _dialogCityCode = code; },
+                  (code) { if (_dialogBarangayCode == null) _dialogBarangayCode = code; },
+                );
+              });
+            }
+            
+            // Load emergency contact address codes only
+            if (!hasInitiallyLoadedEmergencyAddress && _patient?.emergencyContact?.province != null) {
+              hasInitiallyLoadedEmergencyAddress = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                await _loadEmergencyContactAddressCodesFromDatabase(
+                  setState,
+                  (code) => emergencyProvinceCode = code,
+                  (code) => emergencyCityCode = code,
+                  (code) => emergencyBarangayCode = code,
+                );
+              });
+            }
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: 800,
+                  maxHeight: MediaQuery.of(context).size.height * 0.9,
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            theme.buttonPrimary,
+                            theme.buttonPrimary.withOpacity(0.85),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                          topRight: Radius.circular(16),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Patient Information',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              if (!isEditMode)
+                                IconButton(
+                                  icon: const Icon(Icons.edit),
+                                  color: Colors.white,
+                                  onPressed: () {
+                                    setState(() {
+                                      isEditMode = true;
+                                    });
+                                  },
+                                  tooltip: 'Edit',
+                                  splashRadius: 24,
+                                ),
+                              if (!isEditMode)
+                                const SizedBox(width: 12),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                color: Colors.white,
+                                onPressed: () => Navigator.of(context).pop(),
+                                tooltip: 'Close',
+                                splashRadius: 24,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Content
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: _buildPersonalInfoTab(
+                            theme,
+                            isEditMode: isEditMode,
+                            selectedProvinceCode: _dialogProvinceCode,
+                            selectedCityCode: _dialogCityCode,
+                            selectedBarangayCode: _dialogBarangayCode,
+                            onProvinceChanged: (code) {
+                              setState(() {
+                                _dialogProvinceCode = code;
+                                print('DEBUG: _dialogProvinceCode updated to: $code');
+                              });
+                            },
+                            onCityChanged: (code) {
+                              setState(() {
+                                _dialogCityCode = code;
+                              });
+                            },
+                            onBarangayChanged: (code) {
+                              setState(() {
+                                _dialogBarangayCode = code;
+                              });
+                            },
+                            emergencyProvinceCode: emergencyProvinceCode,
+                            emergencyCityCode: emergencyCityCode,
+                            emergencyBarangayCode: emergencyBarangayCode,
+                            onEmergencyProvinceChanged: (code) {
+                              setState(() {
+                                emergencyProvinceCode = code;
+                              });
+                            },
+                            onEmergencyCityChanged: (code) {
+                              setState(() {
+                                emergencyCityCode = code;
+                              });
+                            },
+                            onEmergencyBarangayChanged: (code) {
+                              setState(() {
+                                emergencyBarangayCode = code;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Save/Cancel buttons in edit mode
+                    if (isEditMode)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: BorderSide(
+                              color: theme.buttonPrimary.withOpacity(0.2),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  isEditMode = false;
+                                });
+                              },
+                              child: Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton(
+                              onPressed: () {
+                                // Collect edited data from form fields
+                                _savePatientChanges(
+                                  context,
+                                  theme,
+                                  lastName: _fieldControllers['lastName']?.text ?? _patient!.lastName,
+                                  firstName: _fieldControllers['firstName']?.text ?? _patient!.firstName,
+                                  middleName: _fieldControllers['middleName']?.text ?? _patient!.middleName,
+                                  extension: _fieldControllers['extension']?.text ?? _patient!.extension,
+                                  birthDate: _editingBirthDate ?? _patient!.birthDate,
+                                  contactNumber: _fieldControllers['contactNumber']?.text ?? _patient!.contactNumber,
+                                  civilStatus: _fieldControllers['civilStatus']?.text ?? _patient!.civilStatus,
+                                  religion: _fieldControllers['religion']?.text ?? _patient!.religion,
+                                  purok: _fieldControllers['purok']?.text ?? _patient!.purok,
+                                  provinceCode: _dialogProvinceCode ?? _patient!.province,
+                                  cityCode: _dialogCityCode ?? _patient!.cityMunicipal,
+                                  barangayCode: _dialogBarangayCode ?? _patient!.barangay,
+                                  emergencyContactName: _fieldControllers['emergencyContactName']?.text ?? _patient!.emergencyContact?.name,
+                                  emergencyContactRelationship: _fieldControllers['emergencyContactRelationship']?.text ?? _patient!.emergencyContact?.relationship,
+                                  emergencyContactNumber: _fieldControllers['emergencyContactNumber']?.text ?? _patient!.emergencyContact?.contactNumber,
+                                  emergencyContactPurok: _fieldControllers['emergencyContactPurok']?.text ?? _patient!.emergencyContact?.purok,
+                                  emergencyProvinceCode: emergencyProvinceCode ?? _patient!.emergencyContact?.province,
+                                  emergencyCityCode: emergencyCityCode ?? _patient!.emergencyContact?.cityMunicipal,
+                                  emergencyBarangayCode: emergencyBarangayCode ?? _patient!.emergencyContact?.barangay,
+                                );
+                                print('DEBUG SAVE: _dialogProvinceCode=$_dialogProvinceCode, patient.province=${_patient!.province}');
+                                print('DEBUG SAVE: Using provinceCode: ${_dialogProvinceCode ?? _patient!.province}');
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: theme.buttonPrimary,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 12,
+                                ),
+                              ),
+                              child: const Text(
+                                'Save Changes',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildPersonalInfoTab(
+    AppThemeData theme, {
+    bool isEditMode = false,
+    String? selectedProvinceCode,
+    String? selectedCityCode,
+    String? selectedBarangayCode,
+    Function(String?)? onProvinceChanged,
+    Function(String?)? onCityChanged,
+    Function(String?)? onBarangayChanged,
+    String? emergencyProvinceCode,
+    String? emergencyCityCode,
+    String? emergencyBarangayCode,
+    Function(String?)? onEmergencyProvinceChanged,
+    Function(String?)? onEmergencyCityChanged,
+    Function(String?)? onEmergencyBarangayChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Profile Picture - Clickable to view full photo
+        Center(
+          child: GestureDetector(
+            onTap: _patient!.photoUrl != null && _patient!.photoUrl!.isNotEmpty
+                ? () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => PhotoViewerWidget(
+                          photoUrl: _patient!.photoUrl!,
+                          userName: _patient!.fullName,
+                        ),
+                      ),
+                    );
+                  }
+                : null,
+            child: Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: theme.buttonPrimary,
+                  width: 3,
+                ),
+                image: _patient!.photoUrl != null && _patient!.photoUrl!.isNotEmpty
+                    ? DecorationImage(
+                        image: NetworkImage(_patient!.photoUrl!),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
+                color: _patient!.photoUrl == null || _patient!.photoUrl!.isEmpty
+                    ? theme.buttonPrimary.withOpacity(0.1)
+                    : null,
+              ),
+              child: _patient!.photoUrl == null || _patient!.photoUrl!.isEmpty
+                  ? Center(
+                      child: Text(
+                        _patient!.initials,
+                        style: TextStyle(
+                          fontSize: 40,
+                          fontWeight: FontWeight.w800,
+                          color: theme.buttonPrimary,
+                        ),
+                      ),
+                    )
+                  : null,
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+        // Two-column layout for personal info
+        if (!isEditMode)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFullInfoItem(theme, 'Last Name', _patient!.lastName),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'First Name', _patient!.firstName),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Middle Name', _patient!.middleName ?? 'N/A'),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Extension', _patient!.extension ?? 'N/A'),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Hospital ID', _patient!.hospitalId),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Date of Birth', _patient!.birthDate),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Address', _formatAddressWithUppercaseBarangay(_patient!.address)),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Civil Status', _patient!.civilStatus ?? 'Not provided'),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 32),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFullInfoItem(theme, 'Age', '${_patient!.age} years old'),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Gender', _patient!.sex),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Contact Number', _patient!.contactNumber ?? 'Not provided'),
+                    const SizedBox(height: 20),
+                    _buildFullInfoItem(theme, 'Religion', _patient!.religion ?? 'Not provided'),
+                  ],
+                ),
+              ),
+            ],
+          )
+        else
+          // Edit mode: Show individual name and address components
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Name Components
+              Text(
+                'NAME COMPONENTS',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: theme.buttonPrimary,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildEditableField(theme, 'Last Name', _patient!.lastName, 'lastName'),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildEditableField(theme, 'First Name', _patient!.firstName, 'firstName'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildEditableField(theme, 'Middle Name', _patient!.middleName ?? '', 'middleName'),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildEditableField(theme, 'Extension', _patient!.extension ?? '', 'extension'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+              // Other Personal Info
+              _buildDateOfBirthPicker(theme, _patient!.birthDate),
+              const SizedBox(height: 16),
+              _buildEditableField(theme, 'Contact Number', _patient!.contactNumber ?? '', 'contactNumber'),
+              const SizedBox(height: 16),
+              _buildCivilStatusDropdown(theme, _patient!.civilStatus ?? ''),
+              const SizedBox(height: 16),
+              _buildEditableField(theme, 'Religion', _patient!.religion ?? '', 'religion'),
+              const SizedBox(height: 32),
+              // Address Components
+              Text(
+                'ADDRESS COMPONENTS',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: theme.buttonPrimary,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Purok text field (not a dropdown)
+              _buildEditableField(theme, 'Purok', _patient!.purok ?? '', 'purok'),
+              const SizedBox(height: 20),
+              // Province, City, Barangay dropdowns
+              // Initialize with null - users select new address during editing
+              PhilippineAddressDropdown(
+                label: '',
+                selectedProvinceCode: selectedProvinceCode,
+                selectedCityCode: selectedCityCode,
+                selectedBarangayCode: selectedBarangayCode,
+                onProvinceChanged: (code, name) {
+                  // Handle province change - store for later save
+                  print('DEBUG: Province selected - code=$code, name=$name');
+                  setState(() {
+                    selectedProvinceCode = code;
+                    print('DEBUG: selectedProvinceCode updated to: $selectedProvinceCode');
+                  });
+                  // CRITICAL: Call the callback to update the instance variable
+                  onProvinceChanged?.call(code);
+                },
+                onCityChanged: (code, name) {
+                  // Handle city change - store for later save
+                  setState(() {
+                    selectedCityCode = code;
+                  });
+                  // CRITICAL: Call the callback to update the instance variable
+                  onCityChanged?.call(code);
+                },
+                onBarangayChanged: (code, name) {
+                  // Handle barangay change - store for later save
+                  setState(() {
+                    selectedBarangayCode = code;
+                  });
+                  // CRITICAL: Call the callback to update the instance variable
+                  onBarangayChanged?.call(code);
+                },
+                showRegion: false,
+                showProvince: true,
+                showCity: true,
+                showBarangay: true,
+              ),
+            ],
+          ),
+        const SizedBox(height: 32),
+        // Emergency Contact Section
+        Text(
+          'EMERGENCY CONTACT',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: theme.buttonPrimary,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (!isEditMode)
+          // View mode
+          if (_patient!.emergencyContact != null)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFullInfoItem(theme, 'Name', _patient!.emergencyContact!.name ?? 'Not provided'),
+                      const SizedBox(height: 20),
+                      _buildFullInfoItem(theme, 'Relationship', _patient!.emergencyContact!.relationship ?? 'Not provided'),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 32),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFullInfoItem(theme, 'Contact Number', _patient!.emergencyContact!.contactNumber ?? 'Not provided'),
+                      const SizedBox(height: 20),
+                      _buildFullInfoItem(theme, 'Address', _patient!.emergencyContact!.fullAddress),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          else
+            Text(
+              'Not provided',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            )
+        else
+          // Edit mode
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildEditableField(theme, 'Name', _patient!.emergencyContact?.name ?? '', 'emergencyContactName'),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildRelationshipDropdown(theme, _patient!.emergencyContact?.relationship ?? ''),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildEditableField(theme, 'Contact Number', _patient!.emergencyContact?.contactNumber ?? '', 'emergencyContactNumber'),
+              const SizedBox(height: 16),
+              Text(
+                'ADDRESS COMPONENTS',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: theme.buttonPrimary,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildEditableField(theme, 'Purok', _patient!.emergencyContact?.purok ?? '', 'emergencyContactPurok'),
+              const SizedBox(height: 16),
+              PhilippineAddressDropdown(
+                label: '',
+                selectedProvinceCode: emergencyProvinceCode,
+                selectedCityCode: emergencyCityCode,
+                selectedBarangayCode: emergencyBarangayCode,
+                onProvinceChanged: (code, name) {
+                  onEmergencyProvinceChanged?.call(code);
+                },
+                onCityChanged: (code, name) {
+                  onEmergencyCityChanged?.call(code);
+                },
+                onBarangayChanged: (code, name) {
+                  onEmergencyBarangayChanged?.call(code);
+                },
+                showRegion: false,
+                showProvince: true,
+                showCity: true,
+                showBarangay: true,
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  String _formatAddressWithUppercaseBarangay(String? address) {
+    if (address == null || address.isEmpty) {
+      return 'Not provided';
+    }
+    
+    // Split address by comma: purok, barangay, city_municipal, province
+    final parts = address.split(',').map((p) => p.trim().toUpperCase()).toList();
+    
+    return parts.join(', ');
+  }
+
+  Widget _buildFullInfoItem(AppThemeData theme, String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: theme.buttonPrimary,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCivilStatusDropdown(AppThemeData theme, String initialValue) {
+    // Must match database enum values (UPPERCASE)
+    final civilStatusOptions = ['SINGLE', 'MARRIED', 'WIDOWED', 'SEPARATED', 'ANNULLED'];
+    
+    // Normalize initial value to uppercase
+    final normalizedInitialValue = initialValue.toUpperCase();
+    
+    // Initialize controller if not exists
+    if (!_fieldControllers.containsKey('civilStatus')) {
+      _fieldControllers['civilStatus'] = TextEditingController(text: normalizedInitialValue);
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Civil Status',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: theme.buttonPrimary,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<String>(
+          value: civilStatusOptions.contains(_fieldControllers['civilStatus']?.text)
+              ? _fieldControllers['civilStatus']?.text
+              : (civilStatusOptions.contains(normalizedInitialValue) ? normalizedInitialValue : null),
+          hint: const Text('Select Civil Status'),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: theme.buttonPrimary, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+          items: civilStatusOptions.map((status) {
+            return DropdownMenuItem<String>(
+              value: status,
+              child: Text(status),
+            );
+          }).toList(),
+          onChanged: (value) {
+            _fieldControllers['civilStatus']?.text = value ?? '';
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRelationshipDropdown(AppThemeData theme, String initialValue) {
+    // Must match database enum values (UPPERCASE)
+    final relationshipOptions = [
+      'MOTHER', 'FATHER', 'SPOUSE', 'BROTHER', 'SISTER', 
+      'SON', 'DAUGHTER', 'GRANDPARENT', 'RELATIVE', 
+      'GUARDIAN', 'FRIEND', 'OTHER'
+    ];
+    
+    // Normalize initial value to uppercase
+    final normalizedInitialValue = initialValue.toUpperCase();
+    
+    // Initialize controller if not exists
+    if (!_fieldControllers.containsKey('emergencyContactRelationship')) {
+      _fieldControllers['emergencyContactRelationship'] = TextEditingController(text: normalizedInitialValue);
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Relationship',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: theme.buttonPrimary,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<String>(
+          value: relationshipOptions.contains(_fieldControllers['emergencyContactRelationship']?.text)
+              ? _fieldControllers['emergencyContactRelationship']?.text
+              : (relationshipOptions.contains(normalizedInitialValue) ? normalizedInitialValue : null),
+          hint: const Text('Select Relationship'),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: theme.buttonPrimary, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+          items: relationshipOptions.map((relationship) {
+            return DropdownMenuItem<String>(
+              value: relationship,
+              child: Text(relationship),
+            );
+          }).toList(),
+          onChanged: (value) {
+            _fieldControllers['emergencyContactRelationship']?.text = value ?? '';
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEditableField(AppThemeData theme, String label, String initialValue, String fieldKey) {
+    // Initialize controller if it doesn't exist
+    if (!_fieldControllers.containsKey(fieldKey)) {
+      _fieldControllers[fieldKey] = TextEditingController(text: initialValue);
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: theme.buttonPrimary,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _fieldControllers[fieldKey],
+          decoration: InputDecoration(
+            hintText: 'Enter $label',
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: theme.buttonPrimary.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: theme.buttonPrimary.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: theme.buttonPrimary,
+                width: 2,
+              ),
+            ),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateOfBirthPicker(AppThemeData theme, String initialDate) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Date of Birth',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: theme.buttonPrimary,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 6),
+        GestureDetector(
+          onTap: () async {
+            final DateTime? picked = await showDatePicker(
+              context: context,
+              initialDate: DateTime.tryParse(initialDate) ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+              builder: (BuildContext context, Widget? child) {
+                return Theme(
+                  data: Theme.of(context).copyWith(
+                    colorScheme: ColorScheme.light(
+                      primary: theme.buttonPrimary,
+                      onPrimary: Colors.white,
+                      surface: Colors.white,
+                      onSurface: Colors.black87,
+                    ),
+                  ),
+                  child: child ?? const SizedBox(),
+                );
+              },
+            );
+            if (picked != null) {
+              setState(() {
+                _editingBirthDate = picked.toString().split(' ')[0];
+              });
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: theme.buttonPrimary.withOpacity(0.3),
+                width: 1,
+              ),
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.white,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _editingBirthDate ?? initialDate,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                Icon(
+                  Icons.calendar_today,
+                  color: theme.buttonPrimary,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton(
+    AppThemeData theme,
+    String label,
+    IconData icon,
+    VoidCallback onPressed, {
+    bool isPrimary = false,
+    bool compact = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: isPrimary
+            ? LinearGradient(
+                colors: [
+                  theme.buttonPrimary,
+                  theme.buttonPrimary.withOpacity(0.85),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+        color: !isPrimary ? theme.buttonPrimary.withOpacity(0.08) : null,
+        borderRadius: BorderRadius.circular(10),
+        border: !isPrimary
+            ? Border.all(
+                color: theme.buttonPrimary.withOpacity(0.3),
+                width: 1.5,
+              )
+            : null,
+        boxShadow: isPrimary
+            ? [
+                BoxShadow(
+                  color: theme.buttonPrimary.withOpacity(0.15),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: compact
+                ? const EdgeInsets.symmetric(horizontal: 14, vertical: 10)
+                : const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: isPrimary ? Colors.white : theme.buttonPrimary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: isPrimary ? Colors.white : theme.buttonPrimary,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildTabsAndContent(AppThemeData theme) {
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildPatientInfoTab(AppThemeData theme) {
+    return SingleChildScrollView(
+      child: PatientInfoSection(patient: _patient!),
+    );
+  }
+
+  Widget _buildVisitHistoryTab(AppThemeData theme) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.history, size: 48, color: theme.textMuted),
+          const SizedBox(height: 16),
+          Text(
+            'No visit history available',
+            style: TextStyle(color: theme.textSecondary, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Visit history will appear here once visits are recorded',
+            style: TextStyle(color: theme.textMuted, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _savePatientChanges(
+    BuildContext context,
+    AppThemeData theme, {
+    required String lastName,
+    required String firstName,
+    String? middleName,
+    String? extension,
+    required String birthDate,
+    String? contactNumber,
+    String? civilStatus,
+    String? religion,
+    String? purok,
+    String? provinceCode,
+    String? cityCode,
+    String? barangayCode,
+    String? emergencyContactName,
+    String? emergencyContactRelationship,
+    String? emergencyContactNumber,
+    String? emergencyContactPurok,
+    String? emergencyProvinceCode,
+    String? emergencyCityCode,
+    String? emergencyBarangayCode,
+  }) async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return Dialog(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: theme.buttonPrimary),
+                  const SizedBox(height: 16),
+                  const Text('Saving changes...'),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+      // Collect edited data
+      final Map<String, dynamic> updateData = {
+        'lastname': lastName,
+        'firstname': firstName,
+        'middlename': middleName,
+        'ext': extension,
+        'birthdate': birthDate,
+        'contact_number': contactNumber,
+        'civil_status': civilStatus,
+        'religion': religion,
+        'purok': purok,
+        'province': provinceCode,
+        'city_municipal': cityCode,
+        'barangay': barangayCode,
+        'emergency_contact': {
+          'contact_name': emergencyContactName,
+          'relationship': emergencyContactRelationship,
+          'contact_number': emergencyContactNumber,
+          'purok': emergencyContactPurok,
+          'province': emergencyProvinceCode,
+          'city_municipal': emergencyCityCode,
+          'barangay': emergencyBarangayCode,
+        }
+      };
+
+      // Send to backend API
+      final response = await _patientProvider.updatePatient(
+        _patient!.hospitalId,
+        updateData,
+      );
+
+      // Close loading dialog
+      if (mounted) Navigator.of(context).pop();
+
+      if (response.statusCode == 200) {
+        // Show success message in dialog
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (BuildContext context) {
+              return Dialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        color: Colors.green,
+                        size: 48,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Success',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Patient information updated successfully',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(); // Close success dialog
+                          Navigator.of(context).pop(); // Close patient info dialog
+                          _loadPatient(); // Reload patient data
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.buttonPrimary,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 12,
+                          ),
+                        ),
+                        child: const Text(
+                          'OK',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        }
+      } else {
+        // Show error message in dialog
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (BuildContext context) {
+              return Dialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        color: Colors.red,
+                        size: 48,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Error',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Error saving changes: ${response.statusCode}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(); // Close error dialog
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 12,
+                          ),
+                        ),
+                        child: const Text(
+                          'OK',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        }
+      }
+    } catch (e) {
+      // Close loading dialog if still open
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+
+      // Show error message in dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      color: Colors.red,
+                      size: 48,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Error',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Error: $e',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 12,
+                        ),
+                      ),
+                      child: const Text(
+                        'OK',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      }
+    }
+  }
+
+  Future<void> _loadEmergencyContactAddressCodesFromDatabase(
+    StateSetter setState,
+    Function(String?) setProvinceCode,
+    Function(String?) setCityCode,
+    Function(String?) setBarangayCode,
+  ) async {
+    try {
+      final addressService = AddressService();
+      
+      if (_patient?.emergencyContact?.province != null && _patient!.emergencyContact!.province!.isNotEmpty) {
+        final provinces = await addressService.fetchProvinces();
+        Province? matchingProvince;
+        
+        try {
+          matchingProvince = provinces.firstWhere(
+            (p) => p.name.toUpperCase() == _patient!.emergencyContact!.province!.toUpperCase(),
+          );
+        } catch (e) {
+          matchingProvince = provinces.isNotEmpty ? provinces.first : null;
+        }
+        
+        if (matchingProvince != null) {
+          setState(() {
+            setProvinceCode(matchingProvince!.code);
+          });
+          
+          if (_patient?.emergencyContact?.cityMunicipal != null && _patient!.emergencyContact!.cityMunicipal!.isNotEmpty) {
+            final cities = await addressService.fetchCities(provinceCode: matchingProvince.code);
+            City? matchingCity;
+            
+            try {
+              matchingCity = cities.firstWhere(
+                (c) => c.name.toUpperCase() == _patient!.emergencyContact!.cityMunicipal!.toUpperCase(),
+              );
+            } catch (e) {
+              matchingCity = cities.isNotEmpty ? cities.first : null;
+            }
+            
+            if (matchingCity != null) {
+              setState(() {
+                setCityCode(matchingCity!.code);
+              });
+              
+              if (_patient?.emergencyContact?.barangay != null && _patient!.emergencyContact!.barangay!.isNotEmpty) {
+                final barangays = await addressService.fetchBarangays(cityCode: matchingCity.code);
+                Barangay? matchingBarangay;
+                
+                try {
+                  matchingBarangay = barangays.firstWhere(
+                    (b) => b.name.toUpperCase() == _patient!.emergencyContact!.barangay!.toUpperCase(),
+                  );
+                } catch (e) {
+                  matchingBarangay = barangays.isNotEmpty ? barangays.first : null;
+                }
+                
+                if (matchingBarangay != null) {
+                  setState(() {
+                    setBarangayCode(matchingBarangay!.code);
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Error loading emergency contact address codes: $e');
+    }
+  }
+
+  Future<Map<String, String?>> _getInitialAddressCodes() async {
+    final result = <String, String?>{
+      'province': null,
+      'city': null,
+      'barangay': null,
+      'emergencyProvince': null,
+      'emergencyCity': null,
+      'emergencyBarangay': null,
+    };
+    
+    try {
+      final addressService = AddressService();
+      
+      // Load patient address codes
+      if (_patient?.province != null && _patient!.province!.isNotEmpty) {
+        final provinces = await addressService.fetchProvinces();
+        try {
+          final matchingProvince = provinces.firstWhere(
+            (p) => p.name.toUpperCase() == _patient!.province!.toUpperCase(),
+          );
+          result['province'] = matchingProvince.code;
+          
+          // Load cities
+          if (_patient?.cityMunicipal != null && _patient!.cityMunicipal!.isNotEmpty) {
+            final cities = await addressService.fetchCities(provinceCode: matchingProvince.code);
+            try {
+              final matchingCity = cities.firstWhere(
+                (c) => c.name.toUpperCase() == _patient!.cityMunicipal!.toUpperCase(),
+              );
+              result['city'] = matchingCity.code;
+              
+              // Load barangays
+              if (_patient?.barangay != null && _patient!.barangay!.isNotEmpty) {
+                final barangays = await addressService.fetchBarangays(cityCode: matchingCity.code);
+                try {
+                  final matchingBarangay = barangays.firstWhere(
+                    (b) => b.name.toUpperCase() == _patient!.barangay!.toUpperCase(),
+                  );
+                  result['barangay'] = matchingBarangay.code;
+                } catch (_) {}
+              }
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+      
+      // Load emergency contact address codes
+      if (_patient?.emergencyContact?.province != null && _patient!.emergencyContact!.province!.isNotEmpty) {
+        final provinces = await addressService.fetchProvinces();
+        try {
+          final matchingProvince = provinces.firstWhere(
+            (p) => p.name.toUpperCase() == _patient!.emergencyContact!.province!.toUpperCase(),
+          );
+          result['emergencyProvince'] = matchingProvince.code;
+          
+          // Load cities
+          if (_patient?.emergencyContact?.cityMunicipal != null && _patient!.emergencyContact!.cityMunicipal!.isNotEmpty) {
+            final cities = await addressService.fetchCities(provinceCode: matchingProvince.code);
+            try {
+              final matchingCity = cities.firstWhere(
+                (c) => c.name.toUpperCase() == _patient!.emergencyContact!.cityMunicipal!.toUpperCase(),
+              );
+              result['emergencyCity'] = matchingCity.code;
+              
+              // Load barangays
+              if (_patient?.emergencyContact?.barangay != null && _patient!.emergencyContact!.barangay!.isNotEmpty) {
+                final barangays = await addressService.fetchBarangays(cityCode: matchingCity.code);
+                try {
+                  final matchingBarangay = barangays.firstWhere(
+                    (b) => b.name.toUpperCase() == _patient!.emergencyContact!.barangay!.toUpperCase(),
+                  );
+                  result['emergencyBarangay'] = matchingBarangay.code;
+                } catch (_) {}
+              }
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      print('Error loading initial address codes: $e');
+    }
+    
+    return result;
+  }
+
+  Future<void> _loadAddressCodesFromDatabase(
+    StateSetter setState,
+    Function(String?) setProvinceCode,
+    Function(String?) setCityCode,
+    Function(String?) setBarangayCode,
+  ) async {
+    try {
+      final addressService = AddressService();
+      
+      // Load all provinces to find the code for patient's current province
+      if (_patient?.province != null && _patient!.province!.isNotEmpty) {
+        final provinces = await addressService.fetchProvinces();
+        Province? matchingProvince;
+        
+        try {
+          matchingProvince = provinces.firstWhere(
+            (p) => p.name.toUpperCase() == _patient!.province!.toUpperCase(),
+          );
+        } catch (e) {
+          // No matching province found
+          matchingProvince = provinces.isNotEmpty ? provinces.first : null;
+        }
+        
+        if (matchingProvince != null) {
+          setState(() {
+            setProvinceCode(matchingProvince!.code);
+          });
+          
+          // Load cities for the selected province
+          if (_patient?.cityMunicipal != null && _patient!.cityMunicipal!.isNotEmpty) {
+            final cities = await addressService.fetchCities(provinceCode: matchingProvince.code);
+            City? matchingCity;
+            
+            try {
+              matchingCity = cities.firstWhere(
+                (c) => c.name.toUpperCase() == _patient!.cityMunicipal!.toUpperCase(),
+              );
+            } catch (e) {
+              // No matching city found
+              matchingCity = cities.isNotEmpty ? cities.first : null;
+            }
+            
+            if (matchingCity != null) {
+              setState(() {
+                setCityCode(matchingCity!.code);
+              });
+              
+              // Load barangays for the selected city
+              if (_patient?.barangay != null && _patient!.barangay!.isNotEmpty) {
+                final barangays = await addressService.fetchBarangays(cityCode: matchingCity.code);
+                Barangay? matchingBarangay;
+                
+                try {
+                  matchingBarangay = barangays.firstWhere(
+                    (b) => b.name.toUpperCase() == _patient!.barangay!.toUpperCase(),
+                  );
+                } catch (e) {
+                  // No matching barangay found
+                  matchingBarangay = barangays.isNotEmpty ? barangays.first : null;
+                }
+                
+                if (matchingBarangay != null) {
+                  setState(() {
+                    setBarangayCode(matchingBarangay!.code);
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Error loading address codes: $e');
+    }
+  }
+
+  void _addVisit(BuildContext context) {
+    // Use shared OPD route - accessible to all OPD roles
+    Navigator.pushNamed(
+      context,
+      '/opd/add-visit',
+      arguments: widget.hospitalId,
+    );
+  }
+}
