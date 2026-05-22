@@ -71,12 +71,44 @@ Thumbs.db
 *.crt
 secrets.json
 credentials.json
+.env.production
+.env.staging
 
-# Node modules (if using any frontend build tools)
+# Node modules
 node_modules/
 npm-debug.log
+yarn-error.log
 
 # Temporary files
 *.tmp
 *.temp
 .tmp/
+
+# SQL scripts (temporary / debug)
+*.sql
+
+# Python test / debug scripts
+*_test.py
+check_*.py
+diagnose_*.py
+fix_*.py
+auto_*.py
+simple_test.py
+test_*.py
+create_*.py
+set_*.py
+force_fix_*.py
+compressed_fix_*.py
+final_comprehensive_fix.py
+
+# Nested frontend folder (if present inside backend)
+frontend/
+
+# Deployment files (optional - uncomment if needed)
+# DEPLOYMENT_RENDER.md
+# Procfile
+# render.yaml
+
+# Random folders
+git/
+"git" 
