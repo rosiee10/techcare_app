@@ -15,7 +15,7 @@ class IpdCartInventory(models.Model):
     Proxy model or view representation for Cart Inventory (Location ID 2)
     This allows IPD nurses to view stock available specifically in the Cart/Floor Stock.
     """
-    medicine = models.ForeignKey(PharmacyMedicine, on_delete=models.DO_NOTHING, related_name='cart_inventory', primary_key=True)
+    medicine = models.OneToOneField(PharmacyMedicine, on_delete=models.DO_NOTHING, related_name='cart_inventory', primary_key=True)
     batch = models.ForeignKey(PharmacyStockBatch, on_delete=models.DO_NOTHING)
     location = models.ForeignKey(PharmacyLocation, on_delete=models.DO_NOTHING)
     qty_on_hand = models.DecimalField(max_digits=12, decimal_places=2)
@@ -39,7 +39,7 @@ class IpdDepartments(models.Model):
     is_active = models.BooleanField(blank=True, null=True)
 
     class Meta:
-        db_table = 'pch.ipd_departments'
+        db_table = 'ipd_departments'
         managed = False
 
     def __str__(self):
@@ -60,7 +60,7 @@ class IpdRooms(models.Model):
     is_active = models.BooleanField(blank=True, null=True)
 
     class Meta:
-        db_table = 'pch.ipd_rooms'
+        db_table = 'ipd_rooms'
         managed = False
 
     def __str__(self):
@@ -107,7 +107,7 @@ class IpdNoticeOfAdmission(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'pch.ipd_notice_of_admission'
+        db_table = 'ipd_notice_of_admission'
         managed = False
 
     def __str__(self):
@@ -171,7 +171,7 @@ class DispensingSheet(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'pch.ipd_services_dispensing'
+        db_table = 'ipd_services_dispensing'
         managed = False  # Set to False as per SQL-first approach
         ordering = ['-created_at']
 
@@ -209,7 +209,7 @@ class DispensingSheetItem(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'pch.ipd_services_dispensing_items'
+        db_table = 'ipd_services_dispensing_items'
         managed = False
 
     def __str__(self):
@@ -266,7 +266,7 @@ class CartForm(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'pch.ipd_cart_forms'
+        db_table = 'ipd_cart_forms'
         managed = False
         ordering = ['-created_at']
 
@@ -299,7 +299,7 @@ class CartFormItem(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'pch.ipd_cart_form_items'
+        db_table = 'ipd_cart_form_items'
         managed = False
 
     def __str__(self):

@@ -215,21 +215,38 @@ class IpdPatientSearchView(APIView):
             patients = queryset.order_by('lastname', 'firstname')[:50] # Limit results
             
             results = []
-            for patient in patients:
-                # Get current active admission (Notice of Admission)
-                # status can be 'approved' or 'pending' for active inpatients in the new system
-                admission = IpdNoticeOfAdmission.objects.filter(
-                    patient=patient,
-                    status__in=['approved', 'pending']
-                ).order_by('-admission_date', '-submitted_date').first()
-                
-                patient_data = PatientProfilingBasicSerializer(patient).data
-                if admission:
-                    patient_data['admission'] = IpdNoticeOfAdmissionSerializer(admission).data
-                else:
-                    patient_data['admission'] = None
-                
-                results.append(patient_data)
+            with connection.cursor() as cursor:
+                for patient in patients:
+                    # Use raw SQL to get current active admission (Notice of Admission)
+                    # to be absolutely sure we are using the correct table and bypassing any ORM issues
+                    cursor.execute("""
+                        SELECT 
+                            admission_id, hospital_id, admission_date, admitting_physician, 
+                            department, status, submitted_date, approved_date
+                        FROM ipd_notice_of_admission
+                        WHERE patient_id = %s AND status IN ('approved', 'pending')
+                        ORDER BY admission_date DESC, submitted_date DESC
+                        LIMIT 1
+                    """, [patient.patient_id])
+                    
+                    row = cursor.fetchone()
+                    admission_data = None
+                    if row:
+                        admission_data = {
+                            'admission_id': row[0],
+                            'hospital_id': row[1],
+                            'admission_date': row[2].isoformat() if row[2] else None,
+                            'admitting_physician': row[3],
+                            'department': row[4],
+                            'status': row[5],
+                            'submitted_date': row[6].isoformat() if row[6] else None,
+                            'approved_date': row[7].isoformat() if row[7] else None,
+                            'room_display': row[4] or "IPD Ward"
+                        }
+                    
+                    patient_data = PatientProfilingBasicSerializer(patient).data
+                    patient_data['admission'] = admission_data
+                    results.append(patient_data)
             
             return Response({
                 'success': True,
@@ -257,15 +274,35 @@ class IpdPatientDetailView(APIView):
                 is_active=True
             )
             
-            # Get current admission
-            admission = IpdNoticeOfAdmission.objects.filter(
-                patient=patient,
-                status__in=['approved', 'pending']
-            ).order_by('-admission_date').first()
+            # Get current admission using raw SQL
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT 
+                        admission_id, hospital_id, admission_date, admitting_physician, 
+                        department, status, submitted_date, approved_date
+                    FROM ipd_notice_of_admission
+                    WHERE patient_id = %s AND status IN ('approved', 'pending')
+                    ORDER BY admission_date DESC, submitted_date DESC
+                    LIMIT 1
+                """, [patient.patient_id])
+                
+                row = cursor.fetchone()
+                admission_data = None
+                if row:
+                    admission_data = {
+                        'admission_id': row[0],
+                        'hospital_id': row[1],
+                        'admission_date': row[2].isoformat() if row[2] else None,
+                        'admitting_physician': row[3],
+                        'department': row[4],
+                        'status': row[5],
+                        'submitted_date': row[6].isoformat() if row[6] else None,
+                        'approved_date': row[7].isoformat() if row[7] else None,
+                        'room_display': row[4] or "IPD Ward"
+                    }
             
             patient_data = PatientProfilingBasicSerializer(patient).data
-            if admission:
-                patient_data['admission'] = IpdNoticeOfAdmissionSerializer(admission).data
+            patient_data['admission'] = admission_data
             
             return Response({
                 'success': True,
