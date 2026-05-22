@@ -15,7 +15,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/
 lib64/
 parts/
 sdist/
@@ -102,7 +102,7 @@ compressed_fix_*.py
 final_comprehensive_fix.py
 
 # Nested frontend folder (if present inside backend)
-frontend/
+# frontend/
 
 # Deployment files (optional - uncomment if needed)
 # DEPLOYMENT_RENDER.md
