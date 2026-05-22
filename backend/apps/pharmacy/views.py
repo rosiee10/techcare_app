@@ -1247,9 +1247,8 @@ class PharmacyDispenseReceiptViewSet(viewsets.ModelViewSet):
             if r['admission_id']:
                 with connection.cursor() as cursor:
                     cursor.execute("""
-                        SELECT ward_name FROM pch.ipd_admissions a 
-                        LEFT JOIN pch.lib_wards w ON a.ward_id = w.ward_id 
-                        WHERE a.admission_id = %s
+                        SELECT department FROM ipd_notice_of_admission 
+                        WHERE admission_id = %s
                     """, [r['admission_id']])
                     row = cursor.fetchone()
                     if row:
@@ -3127,6 +3126,11 @@ def process_ipd_dispensing(request, dispensing_id):
         
 
         with connection.cursor() as cursor:
+            # Ensure admission_id is nullable in the database
+            try:
+                cursor.execute("ALTER TABLE pharmacy_dispense_receipts ALTER COLUMN admission_id DROP NOT NULL")
+            except:
+                pass
 
             # 3.1 Insert into pharmacy_dispense_receipts
 
@@ -3143,13 +3147,9 @@ def process_ipd_dispensing(request, dispensing_id):
             if not raw_admission_id:
 
                 cursor.execute("""
-
-                    SELECT admission_id FROM pch.ipd_notice_of_admission 
-
+                    SELECT admission_id FROM ipd_notice_of_admission 
                     WHERE patient_id = %s AND status IN ('approved', 'pending')
-
                     ORDER BY admission_date DESC, submitted_date DESC LIMIT 1
-
                 """, [dispensing_sheet.patient_id])
 
                 row = cursor.fetchone()
@@ -3165,11 +3165,8 @@ def process_ipd_dispensing(request, dispensing_id):
             if not raw_admission_id:
 
                 cursor.execute("""
-
-                    SELECT admission_id FROM pch.ipd_notice_of_admission 
-
+                    SELECT admission_id FROM ipd_notice_of_admission 
                     WHERE patient_id = %s ORDER BY admission_id DESC LIMIT 1
-
                 """, [dispensing_sheet.patient_id])
 
                 row = cursor.fetchone()
@@ -3197,39 +3194,24 @@ def process_ipd_dispensing(request, dispensing_id):
             
 
             # Attempt to insert without admission_id column to bypass constraint
-
             cursor.execute("""
-
-                INSERT INTO pch.pharmacy_dispense_receipts (
-
+                INSERT INTO pharmacy_dispense_receipts (
                     receipt_no, ipd_dispensing_id, 
-
-                    patient_id, from_location_id, dispensing_date, 
-
-                    total_amount, trail, updated_trail
-
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-
+                    patient_id, admission_id, from_location_id, dispensing_date, 
+                    total_amount, trail, updated_trail, received_status
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING receipt_id
-
             """, [
-
                 receipt_no,
-
                 dispensing_sheet.dispensing_id,
-
                 dispensing_sheet.patient_id,
-
+                raw_admission_id,
                 1, # From Location ID: 1 (Main Pharmacy)
-
                 timezone.now().date(),
-
                 total_sheet_amount,
-
                 format_trail(request.user, get_client_ip(request)),
-
-                format_trail(request.user, get_client_ip(request))
-
+                format_trail(request.user, get_client_ip(request)),
+                'RECEIVED'
             ])
 
         
@@ -3257,21 +3239,13 @@ def process_ipd_dispensing(request, dispensing_id):
                 
 
                 # Find batch from Location 1 (Main Pharmacy) following FEFO (First Expiry First Out)
-
                 cursor.execute("""
-
                     SELECT b.batch_id, i.qty_on_hand 
-
-                    FROM pch.pharmacy_inventory_balance i
-
-                    JOIN pch.pharmacy_stock_batches b ON i.batch_id = b.batch_id
-
+                    FROM pharmacy_inventory_balance i
+                    JOIN pharmacy_stock_batches b ON i.batch_id = b.batch_id
                     WHERE i.medicine_id = %s AND i.location_id = 1 AND i.qty_on_hand > 0
-
                     ORDER BY b.expiry_date ASC, b.received_date ASC
-
                     LIMIT 1
-
                 """, [medicine_id])
 
                 batch_row = cursor.fetchone()
@@ -3281,65 +3255,36 @@ def process_ipd_dispensing(request, dispensing_id):
 
 
                 # Create Receipt Item
-
                 cursor.execute("""
-
-                    INSERT INTO pch.pharmacy_dispense_receipt_items (
-
+                    INSERT INTO pharmacy_dispense_receipt_items (
                         receipt_id, medicine_id, item_code, 
-
                         item_description, quantity, unit, 
-
-                        unit_cost, total_cost, batch_id, line_status, trail
-
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-
+                        unit_cost, total_cost, batch_id, from_location_id, line_status, trail
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, [
-
                     receipt_id, medicine_id, str(medicine_id), medicine_name,
-
-                    quantity, unit, unit_cost, total_cost, batch_id, 'DISPENSED', format_trail(request.user, get_client_ip(request))
-
+                    quantity, unit, unit_cost, total_cost, batch_id, 1, 'DISPENSED', format_trail(request.user, get_client_ip(request))
                 ])
 
 
 
-                # Update Inventory & Log Transaction
-
                 if batch_id:
-
                     cursor.execute("""
-
-                        UPDATE pch.pharmacy_inventory_balance
-
+                        UPDATE pharmacy_inventory_balance
                         SET qty_on_hand = qty_on_hand - %s
-
                         WHERE medicine_id = %s AND batch_id = %s AND location_id = 1
-
                     """, [quantity, medicine_id, batch_id])
 
-
-
                     cursor.execute("""
-
-                        INSERT INTO pch.pharmacy_transactions (
-
+                        INSERT INTO pharmacy_transactions (
                             transaction_datetime, transaction_type, medicine_id, 
-
                             batch_id, from_location_id, qty, reference_type, 
-
                             reference_id, service_source, remarks, trail
-
                         ) VALUES (NOW(), 'OUT', %s, %s, %s, %s, %s, %s, %s, %s, %s)
-
                     """, [
-
                         medicine_id, batch_id, 1, quantity, 'IPD_DISPENSING',
-
                         dispensing_sheet.dispensing_id, 'IPD',
-
                         f"Pharmacist Dispensed Sheet #{dispensing_sheet.dispensing_id}", format_trail(request.user, get_client_ip(request))
-
                     ])
 
 
