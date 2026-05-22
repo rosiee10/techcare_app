@@ -408,13 +408,12 @@ class PharmacyDispenseReceiptSerializer(serializers.ModelSerializer):
         read_only_fields = ['trail', 'updated_trail']
 
     def get_ward(self, obj):
-        # We need to find the ward from the admission_id
+        # We need to find the ward from the admission_id (Notice of Admission)
         if obj.admission_id:
             try:
-                from apps.ipd.models import IpdPatientAdmissions
-                admission = IpdPatientAdmissions.objects.get(pk=obj.admission_id)
-                if admission.room:
-                    return f"Room {admission.room.room_number}"
+                from apps.ipd.inventory_and_request.models import IpdNoticeOfAdmission
+                admission = IpdNoticeOfAdmission.objects.get(pk=obj.admission_id)
+                return admission.department or "IPD Ward"
             except:
                 pass
         return "IPD Ward"

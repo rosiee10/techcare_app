@@ -3144,11 +3144,11 @@ def process_ipd_dispensing(request, dispensing_id):
 
                 cursor.execute("""
 
-                    SELECT admission_id FROM pch.ipd_patient_admissions 
+                    SELECT admission_id FROM pch.ipd_notice_of_admission 
 
-                    WHERE patient_id = %s AND status = 'ADMITTED'
+                    WHERE patient_id = %s AND status IN ('approved', 'pending')
 
-                    ORDER BY admission_date DESC, admission_time DESC LIMIT 1
+                    ORDER BY admission_date DESC, submitted_date DESC LIMIT 1
 
                 """, [dispensing_sheet.patient_id])
 
@@ -3166,7 +3166,7 @@ def process_ipd_dispensing(request, dispensing_id):
 
                 cursor.execute("""
 
-                    SELECT admission_id FROM pch.ipd_patient_admissions 
+                    SELECT admission_id FROM pch.ipd_notice_of_admission 
 
                     WHERE patient_id = %s ORDER BY admission_id DESC LIMIT 1
 
