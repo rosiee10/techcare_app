@@ -61,8 +61,14 @@ urlpatterns = [
     # Pharmacy API
     path('api/pharmacy/', include('apps.pharmacy.urls')),
     
+    # Medistock API
+    path('api/medistock/', include('apps.medistock.urls')),
+
     # IPD API
     path('api/ipd/', include('apps.ipd.urls')),
+
+    # Notifications API
+    path('api/notifications/', include('apps.notifications.urls')),
 ]
 
 # Serve media files in development

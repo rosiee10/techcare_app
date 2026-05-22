@@ -76,7 +76,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'backend.urls'
+ROOT_URLCONF = 'backend.backend.urls'
 
 TEMPLATES = [
     {
@@ -114,19 +114,18 @@ if os.getenv('DATABASE_URL'):
 else:
     # Development: Use individual database settings
     DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'techcare_db',
-        'USER': 'techcareuser',
-        'PASSWORD': 'TechcarePCH@2026',
-        'HOST': 'db',
-        'PORT': '5432',
-        'OPTIONS': {
-    'options': '-c search_path=pch,public'
-}
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'techcare_db'),
+            'USER': os.getenv('DB_USER', 'techcareuser'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'TechcarePCH@2026'),
+            'HOST': os.getenv('DB_HOST', 'db'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            'OPTIONS': {
+                'options': '-c search_path=pch,public'
+            }
+        }
     }
-    
-}
 
 
 # Password validation
