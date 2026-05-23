@@ -1021,6 +1021,8 @@ class StockCardCreateView(APIView):
                         unit_cost = 0
                         unit_name = 'Piece'
 
+                    line_total = unit_cost * qty
+
                     # A. Insert into ipd_services_dispensing_items (The core IPD request record)
                     # We keep this as one row for the request, but billing items will be per batch
                     cursor.execute("""
