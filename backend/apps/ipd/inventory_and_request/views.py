@@ -1014,12 +1014,22 @@ class StockCardCreateView(APIView):
                     supply_row = cursor.fetchone()
                     
                     if supply_row:
-                        supply_name, unit_cost, unit_name = supply_row
-                        unit_cost = float(unit_cost or 0)
+                        supply_name, medistock_unit_cost, unit_name = supply_row
+                        medistock_unit_cost = float(medistock_unit_cost or 0)
                     else:
                         supply_name = drug_name
-                        unit_cost = 0
+                        medistock_unit_cost = 0
                         unit_name = 'Piece'
+
+                    # LOOK UP PHARMACY SUPPLY PRICE for this supply (pharmacist-set billing price)
+                    cursor.execute("""
+                        SELECT unit_price FROM pharmacy_supply_price
+                        WHERE supply_id = %s AND is_active = true
+                        ORDER BY effective_date DESC, created_at DESC
+                        LIMIT 1
+                    """, [supply_id])
+                    price_row = cursor.fetchone()
+                    unit_cost = float(price_row[0]) if price_row else medistock_unit_cost
 
                     line_total = unit_cost * qty
 
@@ -1053,7 +1063,7 @@ class StockCardCreateView(APIView):
                         if remaining_to_deduct <= 0: break
                         
                         deduct_now = min(remaining_to_deduct, float(qty_on_hand))
-                        batch_line_total = float(batch_unit_cost or 0) * deduct_now
+                        batch_line_total = unit_cost * deduct_now
                         total_amount += batch_line_total
 
                         # 1. DEDUCT INVENTORY
@@ -1073,7 +1083,7 @@ class StockCardCreateView(APIView):
                         """, [
                             receipt_id, None, supply_id, None,
                             str(supply_id), supply_name, deduct_now, unit_name,
-                            batch_unit_cost, batch_line_total, batch_id, 3, 'DISPENSED', trail
+                            unit_cost, batch_line_total, batch_id, 3, 'DISPENSED', trail
                         ])
 
                         # 3. RECORD TRANSACTION in medistock_transactions
