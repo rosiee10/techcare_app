@@ -70,6 +70,9 @@ urlpatterns = [
     # Social Work API
     path('api/socialwork/', include('apps.socialwork.urls')),
 
+    # Billing API
+    path('api/billing/', include('apps.billing.urls')),
+
 ]
 
 # Serve media files in development
