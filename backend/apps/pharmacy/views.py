@@ -4192,47 +4192,78 @@ class OpdPrescriptionViewSet(viewsets.ModelViewSet):
 @permission_classes([IsAuthenticated])
 def csd_purchase_requests_sent_to_pharmacy(request):
     """
-    Read CSD clerk purchase requests from medistock_purchase_requests table
-    (pr_status='SUBMITTED' means sent to pharmacy).
-    This lives in the pharmacy app so medistock code is not modified.
+    Read CSD clerk purchase requests from medistock_purchase_requests table.
+    Uses raw SQL to correctly join on pr_id column (the ORM model expects
+    purchase_request_id which does not match the actual DB schema).
     """
     try:
-        qs = MedistockPurchaseRequest.objects.prefetch_related(
-            'items', 'items__supply'
-        ).filter(pr_status='SUBMITTED').order_by('-pr_id')
+        with connection.cursor() as cursor:
+            # Fetch all purchase requests with pr_status = 'SUBMITTED'
+            cursor.execute("""
+                SELECT pr_id, pr_no, pr_date, purchase_type, pr_status,
+                       lgu, section, fund, requested_by, total_amount, remarks
+                FROM medistock_purchase_requests
+                WHERE pr_status = 'SUBMITTED'
+                ORDER BY pr_id DESC
+            """)
+            pr_rows = cursor.fetchall()
 
-        results = []
-        for pr in qs:
-            items_data = []
-            for item in pr.items.all():
-                supply_name = item.supply.supply_name if item.supply else 'Unknown'
-                items_data.append({
-                    'pr_item_id': item.pr_item_id,
-                    'supply_id': item.supply_id,
-                    'supply_name': supply_name,
-                    'qty_requested': str(item.qty_requested),
-                    'unit_snapshot': item.unit_snapshot,
-                    'unit_cost_estimate': str(item.unit_cost_estimate),
-                    'line_total_estimate': str(item.line_total_estimate),
-                    'remarks': item.remarks,
+            results = []
+            for pr_row in pr_rows:
+                pr_id = pr_row[0]
+                pr_no = pr_row[1]
+                pr_date = pr_row[2]
+                purchase_type = pr_row[3]
+                pr_status = pr_row[4]
+                lgu = pr_row[5]
+                section = pr_row[6]
+                fund = pr_row[7]
+                requested_by = pr_row[8]
+                total_amount = pr_row[9]
+                remarks = pr_row[10]
+
+                # Fetch items using the actual DB column pr_id
+                cursor.execute("""
+                    SELECT i.pr_item_id, i.supply_id, s.supply_name,
+                           i.qty_requested, i.unit_snapshot,
+                           i.unit_cost_estimate, i.line_total_estimate, i.remarks
+                    FROM medistock_purchase_request_items i
+                    LEFT JOIN medistock_supply_items s ON i.supply_id = s.supply_id
+                    WHERE i.pr_id = %s
+                """, [pr_id])
+                item_rows = cursor.fetchall()
+
+                items_data = []
+                for item_row in item_rows:
+                    items_data.append({
+                        'pr_item_id': item_row[0],
+                        'supply_id': item_row[1],
+                        'supply_name': item_row[2] or 'Unknown',
+                        'qty_requested': str(item_row[3]),
+                        'unit_snapshot': item_row[4],
+                        'unit_cost_estimate': str(item_row[5]) if item_row[5] else '0',
+                        'line_total_estimate': str(item_row[6]) if item_row[6] else '0',
+                        'remarks': item_row[7],
+                    })
+
+                results.append({
+                    'pr_id': pr_id,
+                    'pr_no': pr_no,
+                    'pr_date': pr_date.isoformat() if pr_date else None,
+                    'purchase_type': purchase_type,
+                    'pr_status': pr_status,
+                    'lgu': lgu,
+                    'section': section,
+                    'fund': fund,
+                    'requested_by': requested_by,
+                    'total_amount': str(total_amount) if total_amount else '0',
+                    'remarks': remarks,
+                    'items': items_data,
+                    'items_count': len(items_data),
                 })
-
-            results.append({
-                'pr_id': pr.pr_id,
-                'pr_no': pr.pr_no,
-                'pr_date': pr.pr_date.isoformat() if pr.pr_date else None,
-                'purchase_type': pr.purchase_type,
-                'pr_status': pr.pr_status,
-                'lgu': pr.lgu,
-                'section': pr.section,
-                'fund': pr.fund,
-                'requested_by': pr.requested_by,
-                'total_amount': str(pr.total_amount) if pr.total_amount else '0',
-                'remarks': pr.remarks,
-                'items': items_data,
-                'items_count': len(items_data),
-            })
 
         return Response(results)
     except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
