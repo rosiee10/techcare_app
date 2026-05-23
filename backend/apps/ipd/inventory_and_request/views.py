@@ -198,16 +198,8 @@ class WardInventoryView(APIView):
         query = request.query_params.get('q', '').strip()
         category = request.query_params.get('category', '').strip()
 
-        # Get the WARD location (ID: 3)
-        ward_location = PharmacyLocation.objects.filter(location_id=3).first()
-        if not ward_location:
-            return Response({
-                'success': False,
-                'error': 'WARD location (ID 3) not found in database.'
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        # Filter for WARD Location
-        queryset = IpdCartInventory.objects.filter(location=ward_location, qty_on_hand__gt=0)
+        # Filter directly for WARD Location (ID: 3) without requiring PharmacyLocation row
+        queryset = IpdCartInventory.objects.filter(location__location_id=3, qty_on_hand__gt=0)
 
         if query:
             queryset = queryset.filter(
