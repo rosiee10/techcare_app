@@ -29,7 +29,8 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure--+hl+2gez7)yy7liq#_)co%lpz
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,103.6.168.106,0.0.0.0').split(',')
+
 
 # Application definition
 
@@ -62,12 +63,13 @@ INSTALLED_APPS = [
     'apps.ph_locations',
     'apps.patient',
     'apps.chief_nurse',
+    'apps.notifications',
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -117,13 +119,13 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.getenv('DB_NAME', 'techcare_db'),
-            'USER': os.getenv('DB_USER', 'techcareuser'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'TechcarePCH@2026'),
-            'HOST': os.getenv('DB_HOST', 'db'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', '1234'),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
             'PORT': os.getenv('DB_PORT', '5432'),
             'OPTIONS': {
                 'options': '-c search_path=pch,public'
-            }
+            },
         }
     }
 
@@ -143,7 +145,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'Asia/Manila'
+TIME_ZONE = 'UTC'
 
 USE_I18N = True
 
@@ -180,19 +182,14 @@ REST_FRAMEWORK = {
 }
 
 # CORS settings for Flutter frontend
+# Allow all origins (Flutter web uses random ports in development)
 CORS_ALLOW_ALL_ORIGINS = True
+
+# For production, replace with your actual domain:
+# CORS_ALLOWED_ORIGINS = ["https://yourdomain.com"]
+
 CORS_ALLOW_CREDENTIALS = True
-CORS_PREFLIGHT_MAX_AGE = 86400
-CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET',
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
-]
 CORS_ALLOW_HEADERS = [
-    '*',
     'accept',
     'accept-encoding',
     'authorization',
@@ -202,14 +199,6 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
-]
-
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:57687",
-    "http://127.0.0.1:57687",
-    "http://103.6.168.106",
-    "http://103.6.168.106:8000",
-    "http://103.6.168.106:8080",
 ]
 
 # Security Headers
