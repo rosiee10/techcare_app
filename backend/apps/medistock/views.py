@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db import models, transaction, connection
+from django.db import models, transaction
 from django.db.models import Sum, Q
 from datetime import date as date_obj
 from .models import (
@@ -66,7 +66,7 @@ class MedistockLocationViewSet(viewsets.ModelViewSet):
     serializer_class = MedistockLocationSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['location_type', 'department']
+    filterset_fields = ['location_type', 'department', 'is_active']
     search_fields = ['location_name']
     ordering_fields = ['location_name']
 
@@ -278,44 +278,6 @@ class MedistockInventoryBalanceViewSet(viewsets.ModelViewSet):
                     )
                     dest.qty_on_hand += take
                     dest.save()
-
-                    # Sync to medistock_stock_locations for easy cross-module access
-                    dest_location = MedistockLocation.objects.get(location_id=location_id)
-                    supply_obj = MedistockSupplyItem.objects.select_related('category', 'unit').get(supply_id=supply_id)
-                    trail_value = (
-                        f"{supply_obj.supply_name} | "
-                        f"batch:{balance.batch.batch_no} | "
-                        f"qty:{float(dest.qty_on_hand)}"
-                    )
-                    unit_name = supply_obj.unit.unit_name if supply_obj.unit else None
-                    category_name = supply_obj.category.category_name if supply_obj.category else None
-                    expiry = balance.batch.expiry_date if balance.batch.expiry_date else None
-                    db_cursor = connection.cursor()
-                    db_cursor.execute("""
-                        INSERT INTO medistock_stock_locations (
-                            location_id, location_name, trail,
-                            supply_id, supply_name, batch_no, expiry_date,
-                            qty, unit, category, restocked_by, restocked_at
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                        ON CONFLICT (location_id) DO UPDATE
-                        SET location_name  = EXCLUDED.location_name,
-                            trail          = EXCLUDED.trail,
-                            supply_id      = EXCLUDED.supply_id,
-                            supply_name    = EXCLUDED.supply_name,
-                            batch_no       = EXCLUDED.batch_no,
-                            expiry_date    = EXCLUDED.expiry_date,
-                            qty            = EXCLUDED.qty,
-                            unit           = EXCLUDED.unit,
-                            category       = EXCLUDED.category,
-                            restocked_by   = EXCLUDED.restocked_by,
-                            restocked_at   = NOW()
-                    """, [
-                        dest_location.location_id, dest_location.location_name, trail_value,
-                        supply_obj.supply_id, supply_obj.supply_name,
-                        balance.batch.batch_no, expiry,
-                        float(dest.qty_on_hand), unit_name, category_name, requested_by,
-                    ])
 
                     # Log the transfer transaction
                     MedistockTransaction.objects.create(
