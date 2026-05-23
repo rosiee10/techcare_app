@@ -33,7 +33,7 @@ class MswDocumentListSerializer(serializers.ModelSerializer):
 class MswAssessmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = MswAssessment
-        fields = '__all__'
+        fields = '_all_'
         read_only_fields = ('assessment_id',)
 
 
@@ -70,7 +70,7 @@ class EndorsementSerializer(serializers.ModelSerializer):
     """
     Serializes Endorsement from the existing msw_endorsements table.
     DB columns are mapped directly; extra frontend fields come from the
-    `trail` JSON property on the model.
+    trail JSON property on the model.
     """
 
     # Frontend fields — accepted on write, returned from model property on read
@@ -95,12 +95,8 @@ class EndorsementSerializer(serializers.ModelSerializer):
         print(f'[SERIALIZER] Endorsement {obj.endorsement_id}: social_worker_user_id = {social_worker_id}')
         print(f'[SERIALIZER] Trail data: {obj._trail_dict()}')
         
-        # Fallback to default social worker ID if not set (for legacy endorsements)
-        if social_worker_id is None:
-            default_id = 32
-            print(f'[SERIALIZER] Using fallback social_worker_user_id: {default_id}')
-            return default_id
-        
+        # Return the actual ID — do NOT use a hardcoded fallback
+        # If None, the frontend will use its own fallback
         return social_worker_id
 
     class Meta:

@@ -100,7 +100,7 @@ class MswApplication(models.Model):
     patient_id = models.IntegerField(blank=True, null=True)
     application_number = models.CharField(max_length=32, blank=True, null=True)
     application_type = models.CharField(max_length=50, blank=True, null=True)
-    # NOTE: `status` has a CHECK constraint; let DB default it.
+    # NOTE: status has a CHECK constraint; let DB default it.
     total_requested = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     total_approved = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     referral_source = models.CharField(max_length=50, blank=True, null=True)
@@ -157,7 +157,7 @@ class MswAssessment(models.Model):
 
     total_household_income = models.DecimalField(max_digits=14, decimal_places=2, blank=True, null=True)
     household_size = models.IntegerField(blank=True, null=True)
-    # NOTE: `per_capita_income` is a Postgres GENERATED column
+    # NOTE: per_capita_income is a Postgres GENERATED column
     # (total_household_income / household_size). It must NOT be inserted by
     # Django, so we intentionally do not declare it on the model.
 
@@ -189,7 +189,7 @@ class MswAssessment(models.Model):
     overall_recommendation = models.TextField(blank=True, null=True)
     final_remarks = models.TextField(blank=True, null=True)
 
-    # NOTE: `status` has a CHECK constraint with a fixed enum and a DB default.
+    # NOTE: status has a CHECK constraint with a fixed enum and a DB default.
     # We intentionally don't declare it here so Django lets the DB default fill
     # the value on INSERT.
     trail = models.CharField(max_length=120, blank=True, null=True)
@@ -319,7 +319,7 @@ class Endorsement(models.Model):
 
     Extra frontend fields (patient_name, physician, office, etc.)
 
-    are packed into the `trail` column as JSON.
+    are packed into the trail column as JSON.
 
     """
 
@@ -339,9 +339,9 @@ class Endorsement(models.Model):
 
     attachment_id = models.BigIntegerField(null=True, blank=True)
 
-    trail = models.CharField(max_length=120, blank=True, null=True)
+    trail = models.CharField(max_length=500, blank=True, null=True)
 
-    updated_trail = models.CharField(max_length=120, blank=True, null=True)
+    updated_trail = models.CharField(max_length=500, blank=True, null=True)
 
     updated_at = models.DateTimeField(null=True, blank=True)
 
@@ -392,10 +392,11 @@ class Endorsement(models.Model):
         if len(raw) > 120:
 
             # Compact by keeping only essential keys if too long
+            # IMPORTANT: always keep social_worker_user_id so signature loads correctly
 
             compact = {k: v for k, v in existing.items()
 
-                       if k in ('patient_name', 'office', 'physician', 'status')}
+                       if k in ('patient_name', 'office', 'physician', 'status', 'social_worker_user_id')}
 
             raw = json.dumps(compact, default=str)
 
