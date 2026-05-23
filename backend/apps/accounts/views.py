@@ -260,7 +260,7 @@ def create_user(request):
     deployment = request.data.get('deployment')
     
     # Roles that don't require deployment
-    roles_without_deployment = ['CASHIER', 'PHARMACIST', 'MAYORS OFFICE', 'CONGRESSMAN', 'ICD CODER']
+    roles_without_deployment = ['CASHIER', 'PHARMACIST', 'MAYORS OFFICE', 'CONGRESSMAN', 'ICD CODER', 'SOCIAL WORK', 'SOCIAL_WORKER', 'ADMIN']
     
     # Validate deployment for roles that require it
     if user_role not in roles_without_deployment and not deployment:
@@ -638,7 +638,7 @@ def get_user_profile(request):
         profile = dict_fetchone(cursor)
     
     # Define role-based permissions
-    role = user['user_role']
+    role = user['user_role'].upper().replace(' ', '_')
     permissions = {
         'is_admin': role == 'ADMIN',
         'is_doctor': role == 'DOCTOR',
@@ -648,7 +648,7 @@ def get_user_profile(request):
         'is_pharmacist': role == 'PHARMACIST',
         'is_cashier': role == 'CASHIER',
         'is_kitchen_staff': role == 'KITCHEN_STAFF',
-        'is_social_worker': role == 'SOCIAL_WORKER',
+        'is_social_worker': role in ['SOCIAL_WORKER', 'SOCIAL_WORK'],
         'can_manage_users': role == 'ADMIN',
         'can_view_patients': role in ['ADMIN', 'DOCTOR', 'NURSE', 'CLERK'],
         'can_prescribe': role == 'DOCTOR',
