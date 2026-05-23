@@ -1036,103 +1036,100 @@ from django.db import connection
 
 
 def ensure_signature_table():
-
     """Create the signature table if it doesn't exist"""
-
+    from django.db import connection
+    
     with connection.cursor() as cursor:
-
-        cursor.execute('''
-
-            CREATE TABLE IF NOT EXISTS pch.msw_signature (
-
-                id SERIAL PRIMARY KEY,
-
-                user_id INTEGER REFERENCES pch.users(user_id),
-
-                signature_image BYTEA NOT NULL,
-
-                file_name VARCHAR(255),
-
-                created_at TIMESTAMP DEFAULT NOW()
-
+        # First check if table exists
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'pch' 
+                AND table_name = 'msw_signature'
             );
-
-        ''')
+        """)
+        table_exists = cursor.fetchone()[0]
+        
+        if not table_exists:
+            cursor.execute('''
+                CREATE TABLE pch.msw_signature (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    signature_image BYTEA NOT NULL,
+                    file_name VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    CONSTRAINT fk_msw_signature_user 
+                        FOREIGN KEY (user_id) 
+                        REFERENCES pch.users(user_id)
+                        ON DELETE CASCADE
+                );
+            ''')
+            # Create index on user_id for faster lookups
+            cursor.execute('''
+                CREATE INDEX idx_msw_signature_user_id 
+                ON pch.msw_signature(user_id);
+            ''')
+    
+    # Commit the transaction
+    connection.commit()
 
 
 
 @api_view(['POST'])
 
+@api_view(['POST'])
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def upload_signature(request):
     """Upload signature to msw_signature table"""
     try:
-
         user_id = request.GET.get('user_id') or request.data.get('user_id')
-
+        print(f"[SIGNATURE UPLOAD] user_id from request: {user_id}")
+        
         if not user_id:
-
             return Response({"error": "user_id required"}, status=400)
-
         
-
         file = request.FILES.get('file')
-
+        print(f"[SIGNATURE UPLOAD] file received: {file}")
+        
         if not file:
-
             return Response({"error": "No file uploaded"}, status=400)
-
         
-
         contents = file.read()
-
+        print(f"[SIGNATURE UPLOAD] file size: {len(contents)} bytes")
         
-
         # Ensure table exists
-
+        print("[SIGNATURE UPLOAD] Ensuring table exists...")
         ensure_signature_table()
-
+        print("[SIGNATURE UPLOAD] Table ensured")
         
-
         with connection.cursor() as cursor:
-
             # Delete old signature
-
+            print(f"[SIGNATURE UPLOAD] Deleting old signature for user_id={user_id}")
             cursor.execute(
-
                 "DELETE FROM pch.msw_signature WHERE user_id = %s",
-
                 [user_id]
-
             )
-
+            print(f"[SIGNATURE UPLOAD] Deleted {cursor.rowcount} old signatures")
+            
             # Insert new signature
-
+            print(f"[SIGNATURE UPLOAD] Inserting new signature for user_id={user_id}")
             cursor.execute(
-
                 "INSERT INTO pch.msw_signature (user_id, signature_image, file_name) VALUES (%s, %s, %s) RETURNING id",
-
                 [user_id, contents, file.name]
-
             )
-
             sig_id = cursor.fetchone()[0]
-
+            print(f"[SIGNATURE UPLOAD] Signature saved with id={sig_id}")
         
-
+        # Commit the transaction
+        connection.commit()
+        
         return Response({"id": sig_id, "message": "Signature saved"})
-
         
-
     except Exception as e:
-
-        print(f"Upload signature error: {e}")
-
+        print(f"[SIGNATURE UPLOAD ERROR] {type(e).__name__}: {e}")
         import traceback
-
         traceback.print_exc()
-
         return Response({"error": str(e)}, status=500)
 
 
