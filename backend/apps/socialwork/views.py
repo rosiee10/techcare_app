@@ -177,8 +177,8 @@ def _status_from_classification(classification):
 def create_assessment(request):
     """
     POST /api/socialwork/assessments/
-    Body: full assessment payload + optional `hospital_no` so we can update the
-    matching social_work_referral status based on `patient_classification`.
+    Body: full assessment payload + optional hospital_no so we can update the
+    matching social_work_referral status based on patient_classification.
 
     Returns: { success, assessment, referral_status (or null) }.
     """
@@ -197,9 +197,9 @@ def create_assessment(request):
     patient_id = payload.pop('patient_id', None)
     classification = payload.get('patient_classification')
     new_status = _status_from_classification(classification)
-    # NOTE: do NOT write `status` on msw_assessments — that column has its own
+    # NOTE: do NOT write status on msw_assessments — that column has its own
     # CHECK constraint distinct from social_work_referrals.status. Let the DB
-    # default it. We only use `new_status` to update the referral row below.
+    # default it. We only use new_status to update the referral row below.
     payload.pop('status', None)
 
     # ── Ensure we have an msw_applications row (FK is NOT NULL) ──────────────
@@ -296,7 +296,7 @@ def list_referrals(request):
         ?hospital_no=00-00-02   (optional, exact match)
         ?patient_id=2           (optional, exact match)
         ?search=foo             (optional, matches patient_name / hospital_no)
-    Returns all matching referrals, each with nested `items`.
+    Returns all matching referrals, each with nested items.
     """
     qs = SocialWorkReferral.objects.all().prefetch_related('items')
 
@@ -428,7 +428,7 @@ class EndorsementViewSet(viewsets.ModelViewSet):
 
             queryset = self.get_queryset()
 
-            # Since `office` and `status` are stored in JSON/trail, filter in Python
+            # Since office and status are stored in JSON/trail, filter in Python
 
             office = request.query_params.get('office')
 
@@ -1063,12 +1063,10 @@ def ensure_signature_table():
 
 @api_view(['POST'])
 
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
-
 def upload_signature(request):
-
     """Upload signature to msw_signature table"""
-
     try:
 
         user_id = request.GET.get('user_id') or request.data.get('user_id')
