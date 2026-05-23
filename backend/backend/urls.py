@@ -67,8 +67,6 @@ urlpatterns = [
     # IPD API
     path('api/ipd/', include('apps.ipd.urls')),
 
-    # Notifications API
-    path('api/notifications/', include('apps.notifications.urls')),
 ]
 
 # Serve media files in development
