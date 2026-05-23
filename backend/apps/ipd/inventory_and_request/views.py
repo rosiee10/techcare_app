@@ -19,6 +19,7 @@ from .models import (
     DispensingSheetItem,
     CartForm,
     CartFormItem,
+    IpdCartInventory
 )
 from .serializers import (
     PatientProfilingBasicSerializer,
@@ -111,7 +112,7 @@ class IpdCartInventoryView(APIView):
             }, status=status.HTTP_404_NOT_FOUND)
 
         # Filter for Cart Location
-        queryset = PharmacyInventoryBalance.objects.filter(location=cart_location, qty_on_hand__gt=0)
+        queryset = IpdCartInventory.objects.filter(location=cart_location, qty_on_hand__gt=0)
         
         if query:
             queryset = queryset.filter(
