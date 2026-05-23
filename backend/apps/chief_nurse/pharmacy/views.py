@@ -119,53 +119,7 @@ def get_pharmacy_purchase_requests(request):
                 
                 pr_dict['items'] = items
                 purchase_requests.append(pr_dict)
-            
-            # Also get medistock purchase requests that are forwarded to pharmacy
-            # (status SUBMITTED means pharmacist forwarded them for chief nurse approval)
-            cursor.execute("""
-                SELECT 
-                    pr.pr_id,
-                    pr.pr_no,
-                    pr.pr_status,
-                    pr.pr_date as requested_date,
-                    pr.purchase_type,
-                    pr.fund as cancel_reason,
-                    pr.lgu,
-                    pr.section,
-                    pr.requested_by
-                FROM medistock_purchase_requests pr
-                WHERE pr.pr_status IN ('SUBMITTED', 'FOR_APPROVAL')
-                ORDER BY pr.pr_date DESC
-            """)
-            
-            ms_columns = [col[0] for col in cursor.description]
-            for row in cursor.fetchall():
-                pr_dict = dict(zip(ms_columns, row))
-                pr_dict['source'] = 'medistock'
-                
-                # Get items from medistock_purchase_request_items
-                cursor.execute("""
-                    SELECT 
-                        i.pr_item_id,
-                        i.qty_requested,
-                        i.unit_snapshot,
-                        i.unit_cost_estimate,
-                        i.line_total_estimate,
-                        s.supply_name as medicine_name
-                    FROM medistock_purchase_request_items i
-                    LEFT JOIN medistock_supply_items s ON i.supply_id = s.supply_id
-                    WHERE i.purchase_request_id = %s
-                """, [pr_dict['pr_id']])
-                
-                item_columns = [col[0] for col in cursor.description]
-                items = []
-                for item_row in cursor.fetchall():
-                    item_dict = dict(zip(item_columns, item_row))
-                    items.append(item_dict)
-                
-                pr_dict['items'] = items
-                purchase_requests.append(pr_dict)
-            
+
             return Response({
                 'success': True,
                 'purchase_requests': purchase_requests
@@ -282,13 +236,14 @@ def approve_pharmacy_purchase_request(request, pr_id):
                     WHERE pr_id = %s
                 """, [action, pr_id])
 
-                # Get updated PR for response
+                # Get updated PR for response (include cancel_reason to check CSD link)
                 cursor.execute("""
                     SELECT
                         pr.pr_id,
                         pr.pr_no,
                         pr.pr_status,
-                        pr.requested_date
+                        pr.requested_date,
+                        pr.cancel_reason
                     FROM pharmacy_purchase_requests pr
                     WHERE pr.pr_id = %s
                 """, [pr_id])
@@ -296,6 +251,20 @@ def approve_pharmacy_purchase_request(request, pr_id):
                 columns = [col[0] for col in cursor.description]
                 updated_pr = dict(zip(columns, cursor.fetchone()))
                 updated_pr['source'] = 'pharmacy'
+
+                # If this pharmacy PR is linked to a medistock PR, update medistock too
+                cancel_reason = updated_pr.get('cancel_reason') or ''
+                if cancel_reason.startswith('CSD_ORIGIN:'):
+                    try:
+                        medistock_pr_id = int(cancel_reason.split(':')[1])
+                        cursor.execute("""
+                            UPDATE medistock_purchase_requests
+                            SET pr_status = %s, updated_at = NOW()
+                            WHERE pr_id = %s
+                        """, [action, medistock_pr_id])
+                        print(f"DEBUG: Updated medistock PR {medistock_pr_id} status to {action}")
+                    except (ValueError, IndexError) as e:
+                        print(f"DEBUG: Failed to parse medistock_pr_id from cancel_reason: {cancel_reason}, error: {e}")
 
             elif is_medistock:
                 # Update item quantities if provided (for APPROVED)
