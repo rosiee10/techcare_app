@@ -11,3 +11,4 @@ gunicorn>=21.0.0
 dj-database-url>=2.0.0
 whitenoise>=6.5.0
 pytz>=2023.3
+requests
