@@ -1068,6 +1068,7 @@ class StockCardCreateView(APIView):
                     total_amount += total_cost
 
                     # Insert into pharmacy_dispense_receipt_items
+                    # Note: medicine_id must be NULL for SUPPLY items to avoid constraint/FK issues
                     cursor.execute("""
                         INSERT INTO pharmacy_dispense_receipt_items (
                             receipt_id, medicine_id, supply_id, item_type,
@@ -1075,7 +1076,7 @@ class StockCardCreateView(APIView):
                             unit_cost, total_cost, from_location_id, line_status, trail
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, [
-                        receipt_id, medicine_id, medicine_id, 'SUPPLY',
+                        receipt_id, None, medicine_id, 'SUPPLY',
                         str(medicine_id), supply_name, quantity, unit_name,
                         unit_cost, total_cost, 3, 'DISPENSED', trail
                     ])
