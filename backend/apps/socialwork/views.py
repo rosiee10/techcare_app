@@ -1074,9 +1074,7 @@ def ensure_signature_table():
 
 
 
-@api_view(['POST'])
 
-@api_view(['POST'])
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def upload_signature(request):
