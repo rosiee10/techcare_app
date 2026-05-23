@@ -63,7 +63,6 @@ INSTALLED_APPS = [
     'apps.ph_locations',
     'apps.patient',
     'apps.chief_nurse',
-    'apps.notifications',
 ]
 
 MIDDLEWARE = [
