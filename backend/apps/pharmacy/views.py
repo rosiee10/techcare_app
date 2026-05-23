@@ -4195,15 +4195,17 @@ def csd_purchase_requests_sent_to_pharmacy(request):
     Read CSD clerk purchase requests from medistock_purchase_requests table.
     Uses raw SQL to correctly join on pr_id column (the ORM model expects
     purchase_request_id which does not match the actual DB schema).
+    Shows only DRAFT PRs since those are the ones the CSD clerk created
+    and forwarded to the pharmacy.
     """
     try:
         with connection.cursor() as cursor:
-            # Fetch all purchase requests with pr_status = 'SUBMITTED'
+            # Fetch all purchase requests with pr_status = 'DRAFT'
             cursor.execute("""
                 SELECT pr_id, pr_no, pr_date, purchase_type, pr_status,
                        lgu, section, fund, requested_by, total_amount, remarks
                 FROM medistock_purchase_requests
-                WHERE pr_status = 'SUBMITTED'
+                WHERE pr_status = 'DRAFT'
                 ORDER BY pr_id DESC
             """)
             pr_rows = cursor.fetchall()
