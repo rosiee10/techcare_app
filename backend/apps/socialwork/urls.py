@@ -34,9 +34,9 @@ urlpatterns = [
     path('documents/<int:document_id>/', views.document_detail, name='msw_document_detail'),
 
     # ── Signature API ─────────────────────────────────────────────────────
-    path('api/signatures/upload',           views.upload_signature,   name='upload_signature'),
-    path('api/signatures/<int:user_id>',    views.get_signature,      name='get_signature'),
-    path('api/signatures/debug',            views.debug_signatures,   name='debug_signatures'),
+    path('signatures/upload',           views.upload_signature,   name='upload_signature'),
+    path('signatures/<int:user_id>',    views.get_signature,      name='get_signature'),
+    path('signatures/debug',            views.debug_signatures,   name='debug_signatures'),
     # ── Activity Logs ─────────────────────────────────────────────────────
     path('activity-logs/',  views.list_activity_logs,   name='msw_activity_logs_list'),
     path('activity-logs/create/', views.create_activity_log, name='msw_activity_log_create'),
