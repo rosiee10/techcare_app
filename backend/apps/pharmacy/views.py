@@ -4224,14 +4224,14 @@ def csd_purchase_requests_sent_to_pharmacy(request):
                 total_amount = pr_row[9]
                 remarks = pr_row[10]
 
-                # Fetch items using the actual DB column pr_id
+                # Fetch items using purchase_request_id (the actual FK column)
                 cursor.execute("""
                     SELECT i.pr_item_id, i.supply_id, s.supply_name,
                            i.qty_requested, i.unit_snapshot,
                            i.unit_cost_estimate, i.line_total_estimate, i.remarks
                     FROM medistock_purchase_request_items i
                     LEFT JOIN medistock_supply_items s ON i.supply_id = s.supply_id
-                    WHERE i.pr_id = %s
+                    WHERE i.purchase_request_id = %s
                 """, [pr_id])
                 item_rows = cursor.fetchall()
 
