@@ -256,14 +256,22 @@ def create_user(request):
             )
     
     # Get user_role and deployment
-    user_role = request.data.get('user_role')
+    user_role_raw = request.data.get('user_role', '')
+    user_role = str(user_role_raw).strip().upper()
     deployment = request.data.get('deployment')
     
     # Roles that don't require deployment
-    roles_without_deployment = ['CASHIER', 'PHARMACIST', 'MAYORS OFFICE', 'CONGRESSMAN', 'ICD CODER', 'SOCIAL WORK', 'SOCIAL_WORKER', 'ADMIN']
+    # Using a flexible check for Social Work and Mayor's Office variants
+    is_social_worker = 'SOCIAL' in user_role and ('WORK' in user_role or 'WORKER' in user_role)
+    is_mayors_office = 'MAYOR' in user_role and 'OFFICE' in user_role
+    
+    roles_without_deployment = [
+        'CASHIER', 'PHARMACIST', 'CONGRESSMAN', 'ICD CODER', 'ADMIN'
+    ]
     
     # Validate deployment for roles that require it
-    if user_role not in roles_without_deployment and not deployment:
+    if not (is_social_worker or is_mayors_office or user_role in roles_without_deployment) and not deployment:
+        print(f"DEBUG: Validation failed. Raw role: '{user_role_raw}', Normalized role: '{user_role}', Deployment: '{deployment}'")
         return Response(
             {'error': 'deployment is required'},
             status=status.HTTP_400_BAD_REQUEST
