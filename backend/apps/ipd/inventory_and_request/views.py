@@ -12,7 +12,7 @@ from django.db.models import Q
 from django.db import connection, transaction
 
 from apps.opd.models import PatientProfiling
-from apps.pharmacy.models import PharmacyLocation
+from apps.pharmacy.models import PharmacyLocation, PharmacyInventoryBalance
 from .models import (
     IpdNoticeOfAdmission,
     DispensingSheet,
@@ -28,8 +28,7 @@ from .serializers import (
     DispensingSheetCreateSerializer,
     CartFormListSerializer,
     CartFormDetailSerializer,
-    CartFormCreateSerializer,
-    IpdCartInventorySerializer
+    CartFormCreateSerializer
 )
 
 
