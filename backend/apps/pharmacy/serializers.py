@@ -263,13 +263,18 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
         if not validated_data.get('requested_date'):
             from datetime import date
             validated_data['requested_date'] = date.today()
-        
+
+        # Extract medistock_pr_id if present (CSD-linked PR)
+        medistock_pr_id = validated_data.pop('medistock_pr_id', None)
+        if medistock_pr_id:
+            validated_data['cancel_reason'] = f'CSD_ORIGIN:{medistock_pr_id}'
+
         # Set trail and updated_trail
         if request:
             trail_value = format_trail(request.user, get_client_ip(request))
             validated_data['trail'] = trail_value
             validated_data['updated_trail'] = trail_value
-        
+
         purchase_request = PharmacyPurchaseRequest.objects.create(**validated_data)
         
         # Create items
@@ -278,28 +283,30 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
             for item_data in items_data:
                 medicine_name = item_data.get('medicine_name', '')
                 print(f"DEBUG: Looking up medicine: {medicine_name}")
-                
+
                 # Try to find medicine in inventory
                 medicine = None
                 if medicine_name:
                     medicine = PharmacyMedicine.objects.filter(
                         medicine_name__iexact=medicine_name
                     ).first()
-                
-                # If medicine not found, auto-create it
-                if not medicine and medicine_name:
+
+                # If medicine not found, auto-create it ONLY for non-CSD items
+                # CSD-derived items should not auto-create medicines to avoid
+                # polluting the pharmacy inventory with non-medicine supplies
+                if not medicine and medicine_name and not medistock_pr_id:
                     # Generate medicine code from first 4 letters of first word (uppercase)
                     first_word = medicine_name.split()[0] if medicine_name else ''
                     medicine_code = first_word[:4].upper() if first_word else 'MED'
                     if len(medicine_code) < 3:  # Ensure at least 3 characters
                         medicine_code = medicine_code.ljust(3, 'X')
-                    
+
                     # Get unit cost from purchase price (default 0 if not provided)
                     unit_cost = item_data.get('unit_price', 0)
                     category = item_data.get('category', 'Uncategorized')
                     if not category or category == '':
                         category = 'Uncategorized'
-                    
+
                     medicine = PharmacyMedicine.objects.create(
                         medicine_name=medicine_name,
                         medicine_code=medicine_code,
@@ -310,19 +317,27 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
                         is_active=True
                     )
                     print(f"DEBUG: Auto-created new medicine: {medicine.medicine_id} with code {medicine_code}")
-                
+
                 print(f"DEBUG: Found/Created medicine: {medicine}")
-                
+
                 # Build remarks
                 remarks = item_data.get('remarks', '')
-                
+
+                # Determine module and item type based on CSD origin
+                if medistock_pr_id:
+                    requested_by_module = 'CENTRAL_SUPPLY'
+                    item_type = 'SUPPLY'
+                else:
+                    requested_by_module = 'PHARMACY'
+                    item_type = 'MEDICINE'
+
                 # Create the item with proper field mapping
                 item = PharmacyPurchaseRequestItem.objects.create(
                     purchase_request=purchase_request,
                     medicine=medicine,  # Can be null for new medicines
                     medicine_name=medicine_name,  # Always store medicine name
-                    requested_by_module='PHARMACY',
-                    item_type='MEDICINE',
+                    requested_by_module=requested_by_module,
+                    item_type=item_type,
                     qty_requested=item_data.get('quantity', 0),
                     unit_snapshot=item_data.get('unit', ''),
                     unit_cost_estimate=item_data.get('unit_price', 0),
