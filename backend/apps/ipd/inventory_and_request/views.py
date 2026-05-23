@@ -1021,11 +1021,8 @@ class StockCardCreateView(APIView):
                         unit_cost = 0
                         unit_name = 'Piece'
 
-                    line_total = unit_cost * qty
-                    total_amount += line_total
-
-                    # A. Insert into ipd_services_dispensing_items (The core IPD request item table)
-                    # Note: item_type is set to NULL to bypass strict database check constraints
+                    # A. Insert into ipd_services_dispensing_items (The core IPD request record)
+                    # We keep this as one row for the request, but billing items will be per batch
                     cursor.execute("""
                         INSERT INTO ipd_services_dispensing_items (
                             dispensing_id, medicine_id, supply_id, item_type,
@@ -1038,42 +1035,46 @@ class StockCardCreateView(APIView):
                         unit_cost, line_total, timezone.now(), trail
                     ])
 
-                    # B. Insert into pharmacy_dispense_receipt_items (The billing item table)
-                    # Note: item_type is set to NULL here as well to avoid constraint violations
+                    # B. FEFO BATCH PROCESSING & INVENTORY DEDUCTION
+                    # Join with medistock_supply_batches to get expiry_date for FEFO
                     cursor.execute("""
-                        INSERT INTO pharmacy_dispense_receipt_items (
-                            receipt_id, medicine_id, supply_id, item_type,
-                            item_code, item_description, quantity, unit,
-                            unit_cost, total_cost, from_location_id, line_status, trail
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, [
-                        receipt_id, None, supply_id, None,
-                        str(supply_id), supply_name, qty, unit_name,
-                        unit_cost, line_total, 3, 'DISPENSED', trail
-                    ])
-
-                    # C. DEDUCT INVENTORY and RECORD TRANSACTION in Medistock
-                    cursor.execute("""
-                        SELECT batch_id, qty_on_hand FROM medistock_inventory_balance
-                        WHERE supply_id = %s AND location_id = 3 AND qty_on_hand > 0
-                        ORDER BY batch_id ASC
+                        SELECT b.batch_id, b.qty_on_hand, s.unit_cost, s.expiry_date
+                        FROM medistock_inventory_balance b
+                        JOIN medistock_supply_batches s ON b.batch_id = s.batch_id
+                        WHERE b.supply_id = %s AND b.location_id = 3 AND b.qty_on_hand > 0
+                        ORDER BY s.expiry_date ASC, b.batch_id ASC
                     """, [supply_id])
                     batches = cursor.fetchall()
                     
                     remaining_to_deduct = qty
-                    for batch_id, qty_on_hand in batches:
+                    for batch_id, qty_on_hand, batch_unit_cost, expiry_date in batches:
                         if remaining_to_deduct <= 0: break
                         
                         deduct_now = min(remaining_to_deduct, float(qty_on_hand))
+                        batch_line_total = float(batch_unit_cost or 0) * deduct_now
+                        total_amount += batch_line_total
+
+                        # 1. DEDUCT INVENTORY
                         cursor.execute("""
                             UPDATE medistock_inventory_balance
                             SET qty_on_hand = qty_on_hand - %s
                             WHERE supply_id = %s AND location_id = 3 AND batch_id = %s
                         """, [deduct_now, supply_id, batch_id])
-                        
-                        remaining_to_deduct -= deduct_now
 
-                        # RECORD TRANSACTION in medistock_transactions
+                        # 2. INSERT INTO pharmacy_dispense_receipt_items (Billing Item per Batch)
+                        cursor.execute("""
+                            INSERT INTO pharmacy_dispense_receipt_items (
+                                receipt_id, medicine_id, supply_id, item_type,
+                                item_code, item_description, quantity, unit,
+                                unit_cost, total_cost, batch_id, from_location_id, line_status, trail
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, [
+                            receipt_id, None, supply_id, None,
+                            str(supply_id), supply_name, deduct_now, unit_name,
+                            batch_unit_cost, batch_line_total, batch_id, 3, 'DISPENSED', trail
+                        ])
+
+                        # 3. RECORD TRANSACTION in medistock_transactions
                         cursor.execute("""
                             INSERT INTO medistock_transactions (
                                 transaction_type, supply_id, batch_id, 
@@ -1086,9 +1087,17 @@ class StockCardCreateView(APIView):
                             'OUT', supply_id, batch_id, 3, None, deduct_now,
                             'STOCK_CARD', receipt_id, 'IPD_NURSE',
                             dispensing_sheet.patient_id, dispensing_sheet.patient.lastname + ', ' + dispensing_sheet.patient.firstname,
-                            fullname, f"Stock Card Dispense for Patient ID {dispensing_sheet.patient_id}",
+                            fullname, f"Stock Card Dispense (FEFO) for Patient ID {dispensing_sheet.patient_id}",
                             timezone.now(), timezone.now()
                         ])
+                        
+                        remaining_to_deduct -= deduct_now
+
+                    # Handle case where no batches were found or stock was insufficient
+                    if remaining_to_deduct == qty:
+                        # Add a single line to billing even if no stock to ensure it appears in billing
+                        # but mark as dispensed without batch if absolutely necessary (optional logic)
+                        pass
 
                 # Update receipt and dispensing sheet totals
                 cursor.execute("""
