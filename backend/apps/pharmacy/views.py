@@ -4225,10 +4225,21 @@ def csd_purchase_requests_sent_to_pharmacy(request):
                 remarks = pr_row[10]
 
                 # Fetch items using purchase_request_id (the actual FK column)
+                # Also look up the unit_price from pharmacy_supply_price
                 cursor.execute("""
                     SELECT i.pr_item_id, i.supply_id, s.supply_name,
                            i.qty_requested, i.unit_snapshot,
-                           i.unit_cost_estimate, i.line_total_estimate, i.remarks
+                           i.unit_cost_estimate, i.line_total_estimate, i.remarks,
+                           COALESCE(
+                               (SELECT p.unit_price
+                                FROM pharmacy_supply_price p
+                                WHERE p.supply_id = i.supply_id
+                                  AND p.is_active = true
+                                ORDER BY p.effective_date DESC
+                                LIMIT 1),
+                               i.unit_cost_estimate,
+                               0
+                           ) as unit_price
                     FROM medistock_purchase_request_items i
                     LEFT JOIN medistock_supply_items s ON i.supply_id = s.supply_id
                     WHERE i.purchase_request_id = %s
@@ -4246,6 +4257,7 @@ def csd_purchase_requests_sent_to_pharmacy(request):
                         'unit_cost_estimate': str(item_row[5]) if item_row[5] else '0',
                         'line_total_estimate': str(item_row[6]) if item_row[6] else '0',
                         'remarks': item_row[7],
+                        'unit_price': str(item_row[8]) if item_row[8] else '0',
                     })
 
                 results.append({
@@ -4265,6 +4277,37 @@ def csd_purchase_requests_sent_to_pharmacy(request):
                 })
 
         return Response(results)
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_csd_purchase_request_status(request):
+    """
+    Update the status of a medistock_purchase_request.
+    Called after pharmacist submits their pharmacy PR.
+    """
+    try:
+        pr_id = request.data.get('pr_id')
+        new_status = request.data.get('status')
+
+        if not pr_id or not new_status:
+            return Response(
+                {'error': 'pr_id and status are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                UPDATE medistock_purchase_requests
+                SET pr_status = %s, updated_at = NOW()
+                WHERE pr_id = %s
+            """, [new_status, pr_id])
+
+        return Response({'success': True, 'message': f'PR {pr_id} status updated to {new_status}'})
     except Exception as e:
         import traceback
         print(traceback.format_exc())

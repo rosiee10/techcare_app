@@ -31,4 +31,5 @@ urlpatterns = [
     path('reports/monthly-dispensing/', views.MonthlyDispensingReportView.as_view(), name='monthly-dispensing-report'),
     path('medicines/<int:medicine_id>/batches/', views.get_medicine_batches, name='medicine-batches'),
     path('csd-purchase-requests/sent-to-pharmacy/', views.csd_purchase_requests_sent_to_pharmacy, name='csd-purchase-requests-sent'),
+    path('update-csd-status/', views.update_csd_purchase_request_status, name='update-csd-status'),
 ]
