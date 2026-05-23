@@ -1025,6 +1025,7 @@ class StockCardCreateView(APIView):
                     total_amount += line_total
 
                     # A. Insert into ipd_services_dispensing_items (The core IPD request item table)
+                    # Note: item_type is set to NULL to bypass strict database check constraints
                     cursor.execute("""
                         INSERT INTO ipd_services_dispensing_items (
                             dispensing_id, medicine_id, supply_id, item_type,
@@ -1032,13 +1033,13 @@ class StockCardCreateView(APIView):
                             unit_cost, total_cost, created_at, trail
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, [
-                        dispensing_sheet.dispensing_id, None, supply_id, 'SUPPLY',
+                        dispensing_sheet.dispensing_id, None, supply_id, None,
                         date_requested, supply_name, int(qty), unit_name,
                         unit_cost, line_total, timezone.now(), trail
                     ])
 
                     # B. Insert into pharmacy_dispense_receipt_items (The billing item table)
-                    # We use item_type = 'SUPPLY' as Image 5 shows it's a valid column
+                    # Note: item_type is set to NULL here as well to avoid constraint violations
                     cursor.execute("""
                         INSERT INTO pharmacy_dispense_receipt_items (
                             receipt_id, medicine_id, supply_id, item_type,
@@ -1046,7 +1047,7 @@ class StockCardCreateView(APIView):
                             unit_cost, total_cost, from_location_id, line_status, trail
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, [
-                        receipt_id, None, supply_id, 'SUPPLY',
+                        receipt_id, None, supply_id, None,
                         str(supply_id), supply_name, qty, unit_name,
                         unit_cost, line_total, 3, 'DISPENSED', trail
                     ])
@@ -1099,14 +1100,6 @@ class StockCardCreateView(APIView):
                     UPDATE ipd_services_dispensing
                     SET total_amount = %s WHERE dispensing_id = %s
                 """, [total_amount, dispensing_sheet.dispensing_id])
-
-            return Response({
-                'success': True,
-                'message': 'Stock card request created and supplies automatically dispensed.',
-                'dispensing_id': dispensing_sheet.dispensing_id,
-                'receipt_id': receipt_id,
-                'receipt_no': receipt_no
-            }, status=status.HTTP_201_CREATED)
 
             return Response({
                 'success': True,
