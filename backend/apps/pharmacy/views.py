@@ -18,6 +18,7 @@ from .models import (
     PharmacyDispenseReceiptItem, PharmacyInventoryAdjustment,
     PharmacyTransaction, OpdPrescription, PharmacySupplyPrice
 )
+from apps.medistock.models import MedistockPurchaseRequest, MedistockPurchaseRequestItem
 
 from .serializers import (
     PharmacySupplierSerializer, PharmacyLocationSerializer, PharmacyMedicineSerializer,
@@ -4185,3 +4186,53 @@ class OpdPrescriptionViewSet(viewsets.ModelViewSet):
     """ViewSet for OPD Prescriptions"""
     queryset = OpdPrescription.objects.all().order_by('-rx_id')
     serializer_class = OpdPrescriptionSerializer
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def csd_purchase_requests_sent_to_pharmacy(request):
+    """
+    Read CSD clerk purchase requests from medistock_purchase_requests table
+    (pr_status='SUBMITTED' means sent to pharmacy).
+    This lives in the pharmacy app so medistock code is not modified.
+    """
+    try:
+        qs = MedistockPurchaseRequest.objects.prefetch_related(
+            'items', 'items__supply'
+        ).filter(pr_status='SUBMITTED').order_by('-pr_id')
+
+        results = []
+        for pr in qs:
+            items_data = []
+            for item in pr.items.all():
+                supply_name = item.supply.supply_name if item.supply else 'Unknown'
+                items_data.append({
+                    'pr_item_id': item.pr_item_id,
+                    'supply_id': item.supply_id,
+                    'supply_name': supply_name,
+                    'qty_requested': str(item.qty_requested),
+                    'unit_snapshot': item.unit_snapshot,
+                    'unit_cost_estimate': str(item.unit_cost_estimate),
+                    'line_total_estimate': str(item.line_total_estimate),
+                    'remarks': item.remarks,
+                })
+
+            results.append({
+                'pr_id': pr.pr_id,
+                'pr_no': pr.pr_no,
+                'pr_date': pr.pr_date.isoformat() if pr.pr_date else None,
+                'purchase_type': pr.purchase_type,
+                'pr_status': pr.pr_status,
+                'lgu': pr.lgu,
+                'section': pr.section,
+                'fund': pr.fund,
+                'requested_by': pr.requested_by,
+                'total_amount': str(pr.total_amount) if pr.total_amount else '0',
+                'remarks': pr.remarks,
+                'items': items_data,
+                'items_count': len(items_data),
+            })
+
+        return Response(results)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
