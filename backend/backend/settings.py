@@ -63,7 +63,6 @@ INSTALLED_APPS = [
     'apps.ph_locations',
     'apps.patient',
     'apps.chief_nurse',
-    'apps.notifications',
 ]
 
 MIDDLEWARE = [
@@ -119,9 +118,9 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.getenv('DB_NAME', 'techcare_db'),
-            'USER': os.getenv('DB_USER', 'postgres'),
-            'PASSWORD': os.getenv('DB_PASSWORD', '1234'),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'USER': os.getenv('DB_USER', 'techcareuser'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'TechcarePCH@2026'),
+            'HOST': os.getenv('DB_HOST', 'postgres_db'),
             'PORT': os.getenv('DB_PORT', '5432'),
             'OPTIONS': {
                 'options': '-c search_path=pch,public'
