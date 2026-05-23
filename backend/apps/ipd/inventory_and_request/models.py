@@ -109,7 +109,7 @@ class IpdNoticeOfAdmission(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'pch.ipd_notice_of_admission'
+        db_table = 'ipd_notice_of_admission'
         managed = False
 
     def __str__(self):
@@ -173,7 +173,7 @@ class DispensingSheet(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'pch.ipd_services_dispensing'
+        db_table = 'ipd_services_dispensing'
         managed = False  # Set to False as per SQL-first approach
         ordering = ['-created_at']
 
@@ -196,6 +196,8 @@ class DispensingSheetItem(models.Model):
     
     # Medicine details
     medicine_id = models.IntegerField(blank=True, null=True) # Link to pharmacy_medicines
+    supply_id = models.IntegerField(blank=True, null=True) # Link to medistock_supply_items
+    item_type = models.CharField(max_length=20, blank=True, null=True) # MEDICINE or SUPPLY
     date_requested = models.DateField()
     dosage = models.CharField(max_length=100, blank=True, null=True)
     quantity = models.IntegerField()
@@ -211,7 +213,7 @@ class DispensingSheetItem(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'pch.ipd_services_dispensing_items'
+        db_table = 'ipd_services_dispensing_items'
         managed = False
 
     def __str__(self):
@@ -268,7 +270,7 @@ class CartForm(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'pch.ipd_cart_forms'
+        db_table = 'ipd_cart_forms'
         managed = False
         ordering = ['-created_at']
 
@@ -301,7 +303,7 @@ class CartFormItem(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'pch.ipd_cart_form_items'
+        db_table = 'ipd_cart_form_items'
         managed = False
 
     def __str__(self):

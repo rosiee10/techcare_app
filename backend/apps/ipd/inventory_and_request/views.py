@@ -958,7 +958,6 @@ class StockCardCreateView(APIView):
             data['items'] = clean_items
 
             # 1. Create Dispensing Sheet record via serializer (only header)
-            # We will handle items manually via raw SQL to be 100% sure medicine_id is NULL
             data_header = data.copy()
             data_header['items'] = [] # Don't let serializer handle items
             serializer = DispensingSheetCreateSerializer(data=data_header)
@@ -977,48 +976,15 @@ class StockCardCreateView(APIView):
             dispensing_sheet.dispensed_date = timezone.now()
             dispensing_sheet.save()
 
-            # Manual insert items into ipd_services_dispensing_items
-            with connection.cursor() as cursor:
-                # Check if supply_id column exists to be safe
-                cursor.execute("""
-                    SELECT column_name FROM information_schema.columns 
-                    WHERE table_name = 'ipd_services_dispensing_items' 
-                    AND column_name = 'supply_id'
-                """)
-                has_supply_id = cursor.fetchone() is not None
-
-                for item in clean_items:
-                    if has_supply_id:
-                        # If table has supply_id column (some versions do), use it
-                        cursor.execute("""
-                            INSERT INTO ipd_services_dispensing_items (
-                                dispensing_id, medicine_id, supply_id, date_requested, dosage, quantity, created_at
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        """, [
-                            dispensing_sheet.dispensing_id, None, item.get('supply_id'),
-                            item['date_requested'], item['dosage'], item['quantity'], timezone.now()
-                        ])
-                    else:
-                        # Standard insert with medicine_id as NULL
-                        cursor.execute("""
-                            INSERT INTO ipd_services_dispensing_items (
-                                dispensing_id, medicine_id, date_requested, dosage, quantity, created_at
-                            ) VALUES (%s, %s, %s, %s, %s, %s)
-                        """, [
-                            dispensing_sheet.dispensing_id, None,
-                            item['date_requested'], item['dosage'], item['quantity'], timezone.now()
-                        ])
-
-            # 2. Create Pharmacy Dispense Receipt with SUPPLY items and deduct inventory
-            items_data = raw_items
+            # 2. Process Items: Calculate costs, insert into IPD items, Pharmacy items, and Medistock
             receipt_no = 'DR-SUPPLY-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
             total_amount = 0
-
+            
             with connection.cursor() as cursor:
                 # Resolve final admission_id
                 final_admission_id = admission_id or dispensing_sheet.admission_id
                 
-                # Insert into pharmacy_dispense_receipts
+                # Insert into pharmacy_dispense_receipts (Billing Header)
                 cursor.execute("""
                     INSERT INTO pharmacy_dispense_receipts (
                         receipt_no, ipd_dispensing_id,
@@ -1027,23 +993,16 @@ class StockCardCreateView(APIView):
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING receipt_id
                 """, [
-                    receipt_no,
-                    dispensing_sheet.dispensing_id,
-                    dispensing_sheet.patient_id,
-                    final_admission_id,
-                    3,  # From Location ID 3 (WARD/SUPPLY)
-                    timezone.now().date(),
-                    0,
-                    trail,
-                    'RECEIVED'
+                    receipt_no, dispensing_sheet.dispensing_id, dispensing_sheet.patient_id,
+                    final_admission_id, 3, timezone.now().date(), 0, trail, 'RECEIVED'
                 ])
                 receipt_id = cursor.fetchone()[0]
 
-                # Insert items and deduct inventory from medistock tables
-                for item_data in items_data:
-                    medicine_id = item_data.get('medicine_id')
-                    quantity = float(item_data.get('quantity') or item_data.get('qty') or 0)
+                for item_data in raw_items:
+                    supply_id = item_data.get('medicine_id') # Original ID from frontend
+                    qty = float(item_data.get('quantity') or item_data.get('qty') or 0)
                     drug_name = item_data.get('drug_name', 'Supply Item')
+                    date_requested = item_data.get('date') or item_data.get('date_requested') or timezone.now().date()
 
                     # Lookup supply details from medistock_supply_items
                     cursor.execute("""
@@ -1051,24 +1010,35 @@ class StockCardCreateView(APIView):
                         FROM medistock_supply_items s
                         LEFT JOIN medistock_units u ON s.unit_id = u.unit_id
                         WHERE s.supply_id = %s
-                    """, [medicine_id])
+                    """, [supply_id])
                     supply_row = cursor.fetchone()
                     
                     if supply_row:
                         supply_name, unit_cost, unit_name = supply_row
                         unit_cost = float(unit_cost or 0)
                     else:
-                        # Fallback to PharmacyMedicine if not in medistock
-                        medicine = PharmacyMedicine.objects.filter(medicine_id=medicine_id).first()
-                        supply_name = medicine.medicine_name if medicine else drug_name
-                        unit_cost = float(medicine.unit_cost or 0) if medicine else 0
-                        unit_name = medicine.unit if medicine else 'Piece'
+                        supply_name = drug_name
+                        unit_cost = 0
+                        unit_name = 'Piece'
 
-                    total_cost = unit_cost * quantity
-                    total_amount += total_cost
+                    line_total = unit_cost * qty
+                    total_amount += line_total
 
-                    # Insert into pharmacy_dispense_receipt_items
-                    # Note: Using 'Supply' (Title Case) as it might be the required value for the constraint
+                    # A. Insert into ipd_services_dispensing_items (The core IPD request item table)
+                    cursor.execute("""
+                        INSERT INTO ipd_services_dispensing_items (
+                            dispensing_id, medicine_id, supply_id, item_type,
+                            date_requested, dosage, quantity, unit,
+                            unit_cost, total_cost, created_at, trail
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, [
+                        dispensing_sheet.dispensing_id, None, supply_id, 'SUPPLY',
+                        date_requested, supply_name, int(qty), unit_name,
+                        unit_cost, line_total, timezone.now(), trail
+                    ])
+
+                    # B. Insert into pharmacy_dispense_receipt_items (The billing item table)
+                    # We use item_type = 'SUPPLY' as Image 5 shows it's a valid column
                     cursor.execute("""
                         INSERT INTO pharmacy_dispense_receipt_items (
                             receipt_id, medicine_id, supply_id, item_type,
@@ -1076,21 +1046,20 @@ class StockCardCreateView(APIView):
                             unit_cost, total_cost, from_location_id, line_status, trail
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, [
-                        receipt_id, None, medicine_id, 'Supply',
-                        str(medicine_id), supply_name, quantity, unit_name,
-                        unit_cost, total_cost, 3, 'DISPENSED', trail
+                        receipt_id, None, supply_id, 'SUPPLY',
+                        str(supply_id), supply_name, qty, unit_name,
+                        unit_cost, line_total, 3, 'DISPENSED', trail
                     ])
 
-                    # DEDUCT INVENTORY from medistock_inventory_balance
-                    # We pick the oldest batch for deduction (FIFO)
+                    # C. DEDUCT INVENTORY and RECORD TRANSACTION in Medistock
                     cursor.execute("""
                         SELECT batch_id, qty_on_hand FROM medistock_inventory_balance
                         WHERE supply_id = %s AND location_id = 3 AND qty_on_hand > 0
                         ORDER BY batch_id ASC
-                    """, [medicine_id])
+                    """, [supply_id])
                     batches = cursor.fetchall()
                     
-                    remaining_to_deduct = quantity
+                    remaining_to_deduct = qty
                     for batch_id, qty_on_hand in batches:
                         if remaining_to_deduct <= 0: break
                         
@@ -1099,7 +1068,7 @@ class StockCardCreateView(APIView):
                             UPDATE medistock_inventory_balance
                             SET qty_on_hand = qty_on_hand - %s
                             WHERE supply_id = %s AND location_id = 3 AND batch_id = %s
-                        """, [deduct_now, medicine_id, batch_id])
+                        """, [deduct_now, supply_id, batch_id])
                         
                         remaining_to_deduct -= deduct_now
 
@@ -1113,20 +1082,31 @@ class StockCardCreateView(APIView):
                                 remarks, transaction_datetime, created_at
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """, [
-                            'OUT', medicine_id, batch_id,
-                            3, None, deduct_now,
+                            'OUT', supply_id, batch_id, 3, None, deduct_now,
                             'STOCK_CARD', receipt_id, 'IPD_NURSE',
                             dispensing_sheet.patient_id, dispensing_sheet.patient.lastname + ', ' + dispensing_sheet.patient.firstname,
-                            fullname,
-                            f"Stock Card Dispense for Patient ID {dispensing_sheet.patient_id}",
+                            fullname, f"Stock Card Dispense for Patient ID {dispensing_sheet.patient_id}",
                             timezone.now(), timezone.now()
                         ])
 
-                # Update receipt total
+                # Update receipt and dispensing sheet totals
                 cursor.execute("""
                     UPDATE pharmacy_dispense_receipts
                     SET total_amount = %s WHERE receipt_id = %s
                 """, [total_amount, receipt_id])
+                
+                cursor.execute("""
+                    UPDATE ipd_services_dispensing
+                    SET total_amount = %s WHERE dispensing_id = %s
+                """, [total_amount, dispensing_sheet.dispensing_id])
+
+            return Response({
+                'success': True,
+                'message': 'Stock card request created and supplies automatically dispensed.',
+                'dispensing_id': dispensing_sheet.dispensing_id,
+                'receipt_id': receipt_id,
+                'receipt_no': receipt_no
+            }, status=status.HTTP_201_CREATED)
 
             return Response({
                 'success': True,
