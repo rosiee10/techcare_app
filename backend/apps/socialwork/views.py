@@ -1038,40 +1038,39 @@ from django.db import connection
 def ensure_signature_table():
     """Create the signature table if it doesn't exist"""
     from django.db import connection
+    from django.db import transaction
     
-    with connection.cursor() as cursor:
-        # First check if table exists
-        cursor.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = 'pch' 
-                AND table_name = 'msw_signature'
-            );
-        """)
-        table_exists = cursor.fetchone()[0]
-        
-        if not table_exists:
-            cursor.execute('''
-                CREATE TABLE pch.msw_signature (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL,
-                    signature_image BYTEA NOT NULL,
-                    file_name VARCHAR(255),
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    CONSTRAINT fk_msw_signature_user 
-                        FOREIGN KEY (user_id) 
-                        REFERENCES pch.users(user_id)
-                        ON DELETE CASCADE
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            # First check if table exists
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'pch' 
+                    AND table_name = 'msw_signature'
                 );
-            ''')
-            # Create index on user_id for faster lookups
-            cursor.execute('''
-                CREATE INDEX idx_msw_signature_user_id 
-                ON pch.msw_signature(user_id);
-            ''')
-    
-    # Commit the transaction
-    connection.commit()
+            """)
+            table_exists = cursor.fetchone()[0]
+            
+            if not table_exists:
+                cursor.execute('''
+                    CREATE TABLE pch.msw_signature (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        signature_image BYTEA NOT NULL,
+                        file_name VARCHAR(255),
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        CONSTRAINT fk_msw_signature_user 
+                            FOREIGN KEY (user_id) 
+                            REFERENCES pch.users(user_id)
+                            ON DELETE CASCADE
+                    );
+                ''')
+                # Create index on user_id for faster lookups
+                cursor.execute('''
+                    CREATE INDEX idx_msw_signature_user_id 
+                    ON pch.msw_signature(user_id);
+                ''')
 
 
 
@@ -1082,6 +1081,8 @@ def ensure_signature_table():
 @permission_classes([IsAuthenticated])
 def upload_signature(request):
     """Upload signature to msw_signature table"""
+    from django.db import transaction
+    
     try:
         user_id = request.GET.get('user_id') or request.data.get('user_id')
         print(f"[SIGNATURE UPLOAD] user_id from request: {user_id}")
@@ -1103,26 +1104,24 @@ def upload_signature(request):
         ensure_signature_table()
         print("[SIGNATURE UPLOAD] Table ensured")
         
-        with connection.cursor() as cursor:
-            # Delete old signature
-            print(f"[SIGNATURE UPLOAD] Deleting old signature for user_id={user_id}")
-            cursor.execute(
-                "DELETE FROM pch.msw_signature WHERE user_id = %s",
-                [user_id]
-            )
-            print(f"[SIGNATURE UPLOAD] Deleted {cursor.rowcount} old signatures")
-            
-            # Insert new signature
-            print(f"[SIGNATURE UPLOAD] Inserting new signature for user_id={user_id}")
-            cursor.execute(
-                "INSERT INTO pch.msw_signature (user_id, signature_image, file_name) VALUES (%s, %s, %s) RETURNING id",
-                [user_id, contents, file.name]
-            )
-            sig_id = cursor.fetchone()[0]
-            print(f"[SIGNATURE UPLOAD] Signature saved with id={sig_id}")
-        
-        # Commit the transaction
-        connection.commit()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                # Delete old signature
+                print(f"[SIGNATURE UPLOAD] Deleting old signature for user_id={user_id}")
+                cursor.execute(
+                    "DELETE FROM pch.msw_signature WHERE user_id = %s",
+                    [user_id]
+                )
+                print(f"[SIGNATURE UPLOAD] Deleted {cursor.rowcount} old signatures")
+                
+                # Insert new signature
+                print(f"[SIGNATURE UPLOAD] Inserting new signature for user_id={user_id}")
+                cursor.execute(
+                    "INSERT INTO pch.msw_signature (user_id, signature_image, file_name) VALUES (%s, %s, %s) RETURNING id",
+                    [user_id, contents, file.name]
+                )
+                sig_id = cursor.fetchone()[0]
+                print(f"[SIGNATURE UPLOAD] Signature saved with id={sig_id}")
         
         return Response({"id": sig_id, "message": "Signature saved"})
         
