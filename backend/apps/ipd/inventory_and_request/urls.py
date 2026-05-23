@@ -8,6 +8,7 @@ urlpatterns = [
     # Inventory
     path('inventory/', views.IpdCartInventoryView.as_view(), name='ipd-cart-inventory'),
     path('inventory/pharmacy/', views.PharmacyInventoryView.as_view(), name='ipd-pharmacy-inventory'),
+    path('inventory/ward/', views.WardInventoryView.as_view(), name='ipd-ward-inventory'),
     
     # Patient Search
     path('patients/search/', views.IpdPatientSearchView.as_view(), name='ipd-patient-search'),
@@ -26,4 +27,7 @@ urlpatterns = [
     path('cart/<int:cart_form_id>/', views.CartFormDetailView.as_view(), name='cart-detail'),
     path('cart/<int:cart_form_id>/status/', views.CartFormUpdateStatusView.as_view(), name='cart-status'),
     path('cart/<int:cart_form_id>/verify/', views.CartFormVerifyView.as_view(), name='cart-verify'),
+
+    # ==================== STOCK CARD (CENTRAL SUPPLY) ====================
+    path('stock-card/create/', views.StockCardCreateView.as_view(), name='stock-card-create'),
 ]

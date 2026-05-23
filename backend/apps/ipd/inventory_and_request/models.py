@@ -12,8 +12,8 @@ from apps.pharmacy.models import (
 
 class IpdCartInventory(models.Model):
     """
-    Proxy model or view representation for Cart Inventory (Location ID 2)
-    This allows IPD nurses to view stock available specifically in the Cart/Floor Stock.
+    Proxy model or view representation for WARD Inventory (Location ID 3)
+    This allows IPD nurses to view stock available specifically in the WARD.
     """
     medicine = models.OneToOneField(PharmacyMedicine, on_delete=models.DO_NOTHING, related_name='cart_inventory', primary_key=True)
     batch = models.ForeignKey(PharmacyStockBatch, on_delete=models.DO_NOTHING)

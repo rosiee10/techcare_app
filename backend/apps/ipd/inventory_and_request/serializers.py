@@ -97,10 +97,10 @@ class DispensingSheetItemSerializer(serializers.ModelSerializer):
         if obj.medicine_id:
             from django.db.models import Sum
             from apps.pharmacy.models import PharmacyInventoryBalance
-            # Main Pharmacy (Location 1)
+            # Cart/Floor Stock (Location 2)
             total = PharmacyInventoryBalance.objects.filter(
                 medicine_id=obj.medicine_id,
-                location_id=1
+                location_id=2
             ).aggregate(total=Sum('qty_on_hand'))['total'] or 0
             return float(total)
         return 0

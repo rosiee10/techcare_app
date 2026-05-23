@@ -53,7 +53,7 @@ class PharmacyInventoryView(APIView):
         # Filter for Pharmacy Location and group by medicine
         from django.db.models import Sum
         
-        # We query PharmacyInventoryBalance directly to get medicines in Location 1
+        # We query PharmacyInventoryBalance directly to get medicines in Location 1 (Main Pharmacy)
         queryset = IpdCartInventory.objects.filter(location=pharmacy_location, qty_on_hand__gt=0)
         
         if query:
@@ -63,7 +63,7 @@ class PharmacyInventoryView(APIView):
             )
             
         results = queryset.values(
-            'medicine__medicine_id', 
+            'medicine__medicine_id',
             'medicine__medicine_name',
             'medicine__medicine_code',
             'medicine__category',
@@ -177,6 +177,100 @@ class IpdCartInventoryView(APIView):
                 'status': status_text
             })
             
+        return Response({
+            'success': True,
+            'total_items': len(inventory_data),
+            'normal_stock': len([i for i in inventory_data if i['status'] == 'Normal']),
+            'low_stock': len([i for i in inventory_data if i['status'] == 'Low Stock']),
+            'expiry_alert': expiry_alert_count,
+            'inventory': inventory_data
+        }, status=status.HTTP_200_OK)
+
+
+class WardInventoryView(APIView):
+    """
+    View to search and list medicines/supplies available in the WARD (Location 3)
+    This is used by IPD nurses for the Central Supply tab and Stock Card form.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        query = request.query_params.get('q', '').strip()
+        category = request.query_params.get('category', '').strip()
+
+        # Get the WARD location (ID: 3)
+        ward_location = PharmacyLocation.objects.filter(location_id=3).first()
+        if not ward_location:
+            return Response({
+                'success': False,
+                'error': 'WARD location (ID 3) not found in database.'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Filter for WARD Location
+        queryset = IpdCartInventory.objects.filter(location=ward_location, qty_on_hand__gt=0)
+
+        if query:
+            queryset = queryset.filter(
+                Q(medicine__medicine_name__icontains=query) |
+                Q(medicine__medicine_code__icontains=query)
+            )
+
+        if category and category != 'All':
+            queryset = queryset.filter(medicine__category=category)
+
+        # Group by medicine to show total stock available across all batches in the ward
+        from django.db.models import Sum, Min
+        from django.utils import timezone
+        from datetime import timedelta
+
+        # Get threshold for expiry (e.g., 30 days)
+        expiry_threshold = timezone.now().date() + timedelta(days=30)
+
+        results = queryset.values(
+            'medicine__medicine_id',
+            'medicine__medicine_name',
+            'medicine__medicine_code',
+            'medicine__category',
+            'medicine__unit',
+            'medicine__reorder_level'
+        ).annotate(
+            total_qty=Sum('qty_on_hand'),
+            earliest_expiry=Min('batch__expiry_date')
+        ).order_by('medicine__medicine_name')
+
+        # Format results for frontend
+        inventory_data = []
+        expiry_alert_count = 0
+
+        for item in results:
+            total_qty = float(item['total_qty'])
+            reorder_level = float(item['medicine__reorder_level'] or 0)
+            expiry_date = item['earliest_expiry']
+
+            # Match UI status logic
+            status_text = 'Normal'
+            if expiry_date and expiry_date <= timezone.now().date():
+                status_text = 'Expired'
+                expiry_alert_count += 1
+            elif expiry_date and expiry_date <= expiry_threshold:
+                status_text = 'Near Expiry'
+                expiry_alert_count += 1
+            elif total_qty <= 0:
+                status_text = 'Out of Stock'
+            elif total_qty <= reorder_level:
+                status_text = 'Low Stock'
+
+            inventory_data.append({
+                'medicine_id': item['medicine__medicine_id'],
+                'medicine_name': item['medicine__medicine_name'],
+                'medicine_code': item['medicine__medicine_code'],
+                'category': item['medicine__category'],
+                'unit': item['medicine__unit'],
+                'quantity': total_qty,
+                'expiry_date': expiry_date.isoformat() if expiry_date else 'N/A',
+                'status': status_text
+            })
+
         return Response({
             'success': True,
             'total_items': len(inventory_data),
@@ -655,8 +749,8 @@ class CartFormCreateView(APIView):
                             # Log Transaction (OUT from Location 2)
                             cursor.execute("""
                                 INSERT INTO pharmacy_transactions (
-                                    transaction_datetime, transaction_type, medicine_id, 
-                                    batch_id, from_location_id, qty, reference_type, 
+                                    transaction_datetime, transaction_type, medicine_id,
+                                    batch_id, from_location_id, qty, reference_type,
                                     reference_id, service_source, remarks, trail
                                 ) VALUES (NOW(), 'OUT', %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, [
@@ -793,3 +887,184 @@ class CartFormUpdateStatusView(APIView):
                 'success': False,
                 'error': 'Cart form not found'
             }, status=status.HTTP_404_NOT_FOUND)
+
+
+# ==================== STOCK CARD (CENTRAL SUPPLY) VIEWS ====================
+
+class StockCardCreateView(APIView):
+    """
+    Create a new stock card request (Central Supply) and auto-dispense.
+    Records in ipd_services_dispensing + ipd_services_dispensing_items
+    AND pharmacy_dispense_receipts + pharmacy_dispense_receipt_items.
+    Sets item_type='SUPPLY' on pharmacy receipt items so they appear
+    in the Medical Supplies table of the IPD Pharmacy Billing dialog.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        try:
+            import random
+            import string
+            from apps.pharmacy.models import PharmacyMedicine
+
+            user = request.user
+            data = request.data.copy()
+
+            # Auto-populate requested_by from authenticated user
+            data['requested_by'] = user.id
+            fullname = f"{user.firstname} {user.lastname}" if hasattr(user, 'firstname') and user.firstname else user.username
+            data['requested_by_name'] = fullname
+
+            role = getattr(user, 'role', 'NURSE')
+            ip_address = request.META.get('REMOTE_ADDR', 'unknown')
+            timestamp = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            # Audit trail marking this as a stock card / central supply request
+            trail = f"{user.username}|{fullname}|{role}|{timestamp}|{ip_address}|STOCK_CARD_CREATED_AND_DISPENSED"
+            data['trail'] = trail
+            data['status'] = 'DISPENSED'  # Auto-dispensed for billing
+
+            # Resolve admission_id if missing
+            patient_id = data.get('patient')
+            admission_id = data.get('admission')
+            if not admission_id and patient_id:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT admission_id FROM ipd_notice_of_admission
+                        WHERE patient_id = %s AND status IN ('approved', 'pending')
+                        ORDER BY admission_date DESC, submitted_date DESC LIMIT 1
+                    """, [patient_id])
+                    row = cursor.fetchone()
+                    if row:
+                        admission_id = row[0]
+                        data['admission'] = admission_id
+
+            # Transform frontend item fields to match DispensingSheetItemSerializer
+            raw_items = request.data.get('items', [])
+            clean_items = []
+            for item in raw_items:
+                clean_items.append({
+                    'date_requested': item.get('date') or item.get('date_requested') or timezone.now().date(),
+                    'medicine_id': item.get('medicine_id'),
+                    'quantity': int(item.get('quantity') or item.get('qty') or 1),
+                    'dosage': item.get('dosage') or item.get('drug_name') or '',
+                })
+            data['items'] = clean_items
+
+            # 1. Create Dispensing Sheet via existing serializer
+            serializer = DispensingSheetCreateSerializer(data=data)
+            if not serializer.is_valid():
+                return Response({
+                    'success': False,
+                    'error': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            dispensing_sheet = serializer.save()
+
+            # Mark as auto-dispensed
+            dispensing_sheet.status = 'DISPENSED'
+            dispensing_sheet.dispensed_by = user.id
+            dispensing_sheet.dispensed_by_name = fullname
+            dispensing_sheet.dispensed_date = timezone.now()
+            dispensing_sheet.save()
+
+            # 2. Create Pharmacy Dispense Receipt with SUPPLY items
+            items_data = raw_items
+            receipt_no = 'DR-SUPPLY-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            total_amount = 0
+
+            with connection.cursor() as cursor:
+                # Ensure admission_id is nullable
+                try:
+                    cursor.execute("ALTER TABLE pharmacy_dispense_receipts ALTER COLUMN admission_id DROP NOT NULL")
+                except:
+                    pass
+
+                # Resolve final admission_id
+                final_admission_id = admission_id or dispensing_sheet.admission_id
+                if not final_admission_id:
+                    cursor.execute("""
+                        SELECT admission_id FROM ipd_notice_of_admission
+                        WHERE patient_id = %s AND status IN ('approved', 'pending')
+                        ORDER BY admission_date DESC, submitted_date DESC LIMIT 1
+                    """, [dispensing_sheet.patient_id])
+                    row = cursor.fetchone()
+                    if row:
+                        final_admission_id = row[0]
+
+                # Insert into pharmacy_dispense_receipts
+                cursor.execute("""
+                    INSERT INTO pharmacy_dispense_receipts (
+                        receipt_no, ipd_dispensing_id,
+                        patient_id, admission_id, from_location_id, dispensing_date,
+                        total_amount, trail, received_status
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING receipt_id
+                """, [
+                    receipt_no,
+                    dispensing_sheet.dispensing_id,
+                    dispensing_sheet.patient_id,
+                    final_admission_id,
+                    3,  # From Location ID 3 (WARD)
+                    timezone.now().date(),
+                    0,
+                    trail,
+                    'RECEIVED'
+                ])
+                receipt_id = cursor.fetchone()[0]
+
+                # Insert items with item_type='SUPPLY'
+                for item_data in items_data:
+                    medicine_id = item_data.get('medicine_id')
+                    quantity = float(item_data.get('quantity', 0))
+                    drug_name = item_data.get('drug_name', 'Supply Item')
+
+                    medicine = PharmacyMedicine.objects.filter(medicine_id=medicine_id).first()
+                    unit_cost = float(medicine.unit_cost or 0) if medicine else 0
+                    total_cost = unit_cost * quantity
+                    total_amount += total_cost
+
+                    cursor.execute("""
+                        INSERT INTO pharmacy_dispense_receipt_items (
+                            receipt_id, medicine_id, supply_id, item_type,
+                            item_code, item_description, quantity, unit,
+                            unit_cost, total_cost, from_location_id, line_status, trail
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, [
+                        receipt_id,
+                        medicine_id,
+                        medicine_id,  # supply_id references the same product
+                        'SUPPLY',
+                        str(medicine_id),
+                        drug_name if drug_name else (medicine.medicine_name if medicine else 'Supply Item'),
+                        quantity,
+                        medicine.unit if medicine else 'Piece',
+                        unit_cost,
+                        total_cost,
+                        3,
+                        'DISPENSED',
+                        trail
+                    ])
+
+                # Update receipt total
+                cursor.execute("""
+                    UPDATE pharmacy_dispense_receipts
+                    SET total_amount = %s WHERE receipt_id = %s
+                """, [total_amount, receipt_id])
+
+            return Response({
+                'success': True,
+                'message': 'Stock card request created and supplies automatically dispensed.',
+                'dispensing_id': dispensing_sheet.dispensing_id,
+                'receipt_id': receipt_id,
+                'receipt_no': receipt_no
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
