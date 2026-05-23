@@ -53,7 +53,9 @@ def get_pharmacy_purchase_requests(request):
     """
     try:
         with connection.cursor() as cursor:
-            # Get all purchase requests
+            purchase_requests = []
+            
+            # Get pharmacy purchase requests
             cursor.execute("""
                 SELECT 
                     pr.pr_id,
@@ -68,10 +70,10 @@ def get_pharmacy_purchase_requests(request):
             """)
             
             columns = [col[0] for col in cursor.description]
-            purchase_requests = []
             
             for row in cursor.fetchall():
                 pr_dict = dict(zip(columns, row))
+                pr_dict['source'] = 'pharmacy'
                 
                 # Get items for this purchase request
                 cursor.execute("""
@@ -118,6 +120,52 @@ def get_pharmacy_purchase_requests(request):
                 pr_dict['items'] = items
                 purchase_requests.append(pr_dict)
             
+            # Also get medistock purchase requests that are forwarded to pharmacy
+            # (status SUBMITTED means pharmacist forwarded them for chief nurse approval)
+            cursor.execute("""
+                SELECT 
+                    pr.pr_id,
+                    pr.pr_no,
+                    pr.pr_status,
+                    pr.pr_date as requested_date,
+                    pr.purchase_type,
+                    pr.fund as cancel_reason,
+                    pr.lgu,
+                    pr.section,
+                    pr.requested_by
+                FROM medistock_purchase_requests pr
+                WHERE pr.pr_status IN ('SUBMITTED', 'FOR_APPROVAL')
+                ORDER BY pr.pr_date DESC
+            """)
+            
+            ms_columns = [col[0] for col in cursor.description]
+            for row in cursor.fetchall():
+                pr_dict = dict(zip(ms_columns, row))
+                pr_dict['source'] = 'medistock'
+                
+                # Get items from medistock_purchase_request_items
+                cursor.execute("""
+                    SELECT 
+                        i.pr_item_id,
+                        i.qty_requested,
+                        i.unit_snapshot,
+                        i.unit_cost_estimate,
+                        i.line_total_estimate,
+                        s.supply_name as medicine_name
+                    FROM medistock_purchase_request_items i
+                    LEFT JOIN medistock_supply_items s ON i.supply_id = s.supply_id
+                    WHERE i.purchase_request_id = %s
+                """, [pr_dict['pr_id']])
+                
+                item_columns = [col[0] for col in cursor.description]
+                items = []
+                for item_row in cursor.fetchall():
+                    item_dict = dict(zip(item_columns, item_row))
+                    items.append(item_dict)
+                
+                pr_dict['items'] = items
+                purchase_requests.append(pr_dict)
+            
             return Response({
                 'success': True,
                 'purchase_requests': purchase_requests
@@ -134,8 +182,8 @@ def get_pharmacy_purchase_requests(request):
 @permission_classes([IsAuthenticated])
 def approve_pharmacy_purchase_request(request, pr_id):
     """
-    Approve or reject a pharmacy purchase request.
-    Updates pr_status in pharmacy_purchase_requests table.
+    Approve or reject a pharmacy or medistock purchase request.
+    Updates pr_status in the appropriate table.
     Chief Nurse can also edit final quantities before approval.
     """
     try:
@@ -143,81 +191,162 @@ def approve_pharmacy_purchase_request(request, pr_id):
         action = data.get('action', '').upper()  # APPROVED or REJECTED
         remarks = data.get('remarks', '')
         updated_items = data.get('updated_items', [])
-        
+        source = data.get('source', '')  # 'pharmacy' or 'medistock'
+
         if action not in ['APPROVED', 'REJECTED']:
             return Response({
                 'success': False,
                 'error': 'Invalid action. Must be APPROVED or REJECTED'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         with connection.cursor() as cursor:
-            # Verify PR exists and is pending
-            cursor.execute("""
-                SELECT pr_status FROM pharmacy_purchase_requests 
-                WHERE pr_id = %s
-            """, [pr_id])
-            
-            result = cursor.fetchone()
+            # Determine which table the PR is in
+            is_pharmacy = False
+            is_medistock = False
+            current_status = None
+
+            if source == 'pharmacy':
+                cursor.execute("""
+                    SELECT pr_status FROM pharmacy_purchase_requests
+                    WHERE pr_id = %s
+                """, [pr_id])
+                result = cursor.fetchone()
+                if result:
+                    is_pharmacy = True
+                    current_status = result[0]
+            elif source == 'medistock':
+                cursor.execute("""
+                    SELECT pr_status FROM medistock_purchase_requests
+                    WHERE pr_id = %s
+                """, [pr_id])
+                result = cursor.fetchone()
+                if result:
+                    is_medistock = True
+                    current_status = result[0]
+            else:
+                # Auto-detect: check pharmacy first, then medistock
+                cursor.execute("""
+                    SELECT pr_status FROM pharmacy_purchase_requests
+                    WHERE pr_id = %s
+                """, [pr_id])
+                result = cursor.fetchone()
+                if result:
+                    is_pharmacy = True
+                    current_status = result[0]
+                else:
+                    cursor.execute("""
+                        SELECT pr_status FROM medistock_purchase_requests
+                        WHERE pr_id = %s
+                    """, [pr_id])
+                    result = cursor.fetchone()
+                    if result:
+                        is_medistock = True
+                        current_status = result[0]
+
             if not result:
                 return Response({
                     'success': False,
                     'error': 'Purchase request not found'
                 }, status=status.HTTP_404_NOT_FOUND)
-            
-            current_status = result[0]
-            if current_status not in ['SUBMITTED', 'DRAFT']:
+
+            # Allow approval for SUBMITTED, DRAFT, or FOR_APPROVAL status
+            if current_status not in ['SUBMITTED', 'DRAFT', 'FOR_APPROVAL']:
                 return Response({
                     'success': False,
                     'error': f'Cannot {action.lower()} PR with status: {current_status}'
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Update item quantities if provided (for APPROVED)
-            # Chief Nurse updates qty_requested with the approved quantity
-            if action == 'APPROVED' and updated_items:
-                for item in updated_items:
-                    approved_qty = item.get('approved_qty', item.get('qty_requested', 0))
-                    unit_cost = item.get('unit_cost_estimate', 0)
-                    cursor.execute("""
-                        UPDATE pharmacy_purchase_request_items 
-                        SET qty_requested = %s,
-                            line_total_estimate = %s * %s
-                        WHERE pr_item_id = %s AND pr_id = %s
-                    """, [
-                        approved_qty,
-                        approved_qty,
-                        unit_cost,
-                        item['pr_item_id'],
-                        pr_id
-                    ])
-            
-            # Update purchase request status
-            cursor.execute("""
-                UPDATE pharmacy_purchase_requests 
-                SET pr_status = %s
-                WHERE pr_id = %s
-            """, [action, pr_id])
-            
-            # Get updated PR for response
-            cursor.execute("""
-                SELECT 
-                    pr.pr_id,
-                    pr.pr_no,
-                    pr.pr_status,
-                    pr.requested_date
-                FROM pharmacy_purchase_requests pr
-                WHERE pr.pr_id = %s
-            """, [pr_id])
-            
-            columns = [col[0] for col in cursor.description]
-            updated_pr = dict(zip(columns, cursor.fetchone()))
-            
+
+            if is_pharmacy:
+                # Update item quantities if provided (for APPROVED)
+                if action == 'APPROVED' and updated_items:
+                    for item in updated_items:
+                        approved_qty = item.get('approved_qty', item.get('qty_requested', 0))
+                        unit_cost = item.get('unit_cost_estimate', 0)
+                        cursor.execute("""
+                            UPDATE pharmacy_purchase_request_items
+                            SET qty_requested = %s,
+                                line_total_estimate = %s * %s
+                            WHERE pr_item_id = %s AND pr_id = %s
+                        """, [
+                            approved_qty,
+                            approved_qty,
+                            unit_cost,
+                            item['pr_item_id'],
+                            pr_id
+                        ])
+
+                # Update purchase request status
+                cursor.execute("""
+                    UPDATE pharmacy_purchase_requests
+                    SET pr_status = %s, updated_at = NOW()
+                    WHERE pr_id = %s
+                """, [action, pr_id])
+
+                # Get updated PR for response
+                cursor.execute("""
+                    SELECT
+                        pr.pr_id,
+                        pr.pr_no,
+                        pr.pr_status,
+                        pr.requested_date
+                    FROM pharmacy_purchase_requests pr
+                    WHERE pr.pr_id = %s
+                """, [pr_id])
+
+                columns = [col[0] for col in cursor.description]
+                updated_pr = dict(zip(columns, cursor.fetchone()))
+                updated_pr['source'] = 'pharmacy'
+
+            elif is_medistock:
+                # Update item quantities if provided (for APPROVED)
+                if action == 'APPROVED' and updated_items:
+                    for item in updated_items:
+                        approved_qty = item.get('approved_qty', item.get('qty_requested', 0))
+                        unit_cost = item.get('unit_cost_estimate', 0)
+                        cursor.execute("""
+                            UPDATE medistock_purchase_request_items
+                            SET qty_requested = %s,
+                                line_total_estimate = %s * %s
+                            WHERE pr_item_id = %s AND purchase_request_id = %s
+                        """, [
+                            approved_qty,
+                            approved_qty,
+                            unit_cost,
+                            item['pr_item_id'],
+                            pr_id
+                        ])
+
+                # Update purchase request status
+                cursor.execute("""
+                    UPDATE medistock_purchase_requests
+                    SET pr_status = %s, updated_at = NOW()
+                    WHERE pr_id = %s
+                """, [action, pr_id])
+
+                # Get updated PR for response
+                cursor.execute("""
+                    SELECT
+                        pr.pr_id,
+                        pr.pr_no,
+                        pr.pr_status,
+                        pr.pr_date as requested_date
+                    FROM medistock_purchase_requests pr
+                    WHERE pr.pr_id = %s
+                """, [pr_id])
+
+                columns = [col[0] for col in cursor.description]
+                updated_pr = dict(zip(columns, cursor.fetchone()))
+                updated_pr['source'] = 'medistock'
+
             return Response({
                 'success': True,
                 'message': f'Purchase request {action.lower()} successfully',
                 'purchase_request': updated_pr
             }, status=status.HTTP_200_OK)
-            
+
     except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         return Response({
             'success': False,
             'error': str(e)
