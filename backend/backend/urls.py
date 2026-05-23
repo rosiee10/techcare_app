@@ -67,6 +67,9 @@ urlpatterns = [
     # IPD API
     path('api/ipd/', include('apps.ipd.urls')),
 
+    # Social Work API
+    path('api/socialwork/', include('apps.socialwork.urls')),
+
 ]
 
 # Serve media files in development
