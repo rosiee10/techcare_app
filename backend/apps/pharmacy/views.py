@@ -1864,80 +1864,81 @@ class DashboardStatsView(APIView):
 class ForecastingStatsView(APIView):
     def get(self, request):
         """API for forecasting dashboard data based on real transactions"""
-        # ... (rest of the code remains the same)
         from django.db.models import Sum, Count
-        from django.db.models.functions import TruncMonth
+        from django.db.models.functions import TruncMonth, TruncWeek
         from datetime import timedelta
 
         today = timezone.now().date()
         last_30_days = today - timedelta(days=30)
+        prev_30_days = today - timedelta(days=60)
+        last_year = today - timedelta(days=365)
+        last_8_weeks = today - timedelta(days=56)
+        last_90_days = today - timedelta(days=90)
 
-        # 1. Demand Counts & Top Dispensed (Last 30 days)
-        # Based on actual Outgoing transactions
-        dispensed_totals = PharmacyTransaction.objects.filter(
+        cursor = connection.cursor()
+
+        def get_medicine_usage(medicine, start_date, end_date=None):
+            qs = PharmacyTransaction.objects.filter(
+                medicine=medicine,
+                transaction_type='OUT',
+                transaction_datetime__date__gte=start_date
+            ).exclude(reference_type='CART_RESTOCK')
+            if end_date:
+                qs = qs.filter(transaction_datetime__date__lt=end_date)
+            return float(qs.aggregate(total=Sum('qty'))['total'] or 0)
+
+        # 1. Demand Counts & Top Dispensed (Last 30 days) — exclude internal restocks
+        dispensed_totals = list(PharmacyTransaction.objects.filter(
             transaction_type='OUT',
             transaction_datetime__date__gte=last_30_days
+        ).exclude(
+            reference_type='CART_RESTOCK'
         ).values('medicine__medicine_name', 'medicine__reorder_level').annotate(
             total_qty=Sum('qty')
-        ).order_by('-total_qty')
-        high_demand = 0
-        medium_demand = 0
-        low_demand = 0
-        top_dispensed_list = []
+        ).order_by('-total_qty'))
 
+        top_dispensed_list = []
         for d in dispensed_totals[:5]:
             top_dispensed_list.append({
                 'name': d['medicine__medicine_name'],
                 'qty': float(d['total_qty'])
             })
 
-        # Calculate demand levels (High if total dispensed > 50 in 30 days, etc.)
-        for d in dispensed_totals:
-            qty = float(d['total_qty'])
-            if qty > 100: high_demand += 1
-            elif qty > 50: medium_demand += 1
-            else: low_demand += 1
+        # Dynamic demand classification using percentiles for accuracy
+        all_qtys = [float(d['total_qty']) for d in dispensed_totals if float(d['total_qty']) > 0]
+        high_demand = 0
+        medium_demand = 0
+        low_demand = 0
 
-        # 2. Critical Stock (Available vs Reorder Level)
+        if len(all_qtys) >= 3:
+            sorted_qtys = sorted(all_qtys)
+            p66 = sorted_qtys[int(len(sorted_qtys) * 0.66)]
+            p33 = sorted_qtys[int(len(sorted_qtys) * 0.33)]
+            for qty in all_qtys:
+                if qty >= p66:
+                    high_demand += 1
+                elif qty >= p33:
+                    medium_demand += 1
+                else:
+                    low_demand += 1
+        elif all_qtys:
+            avg_qty = sum(all_qtys) / len(all_qtys)
+            for qty in all_qtys:
+                if qty >= avg_qty * 1.5:
+                    high_demand += 1
+                elif qty >= avg_qty * 0.5:
+                    medium_demand += 1
+                else:
+                    low_demand += 1
+
+        # 2. Critical Stock & Stock Analysis
+        all_medicines = list(PharmacyMedicine.objects.all())
         critical_stock = []
-        all_medicines = PharmacyMedicine.objects.all()
-        from django.db import connection
-        cursor = connection.cursor()
-        for medicine in all_medicines:
-            cursor.execute("""
-                SELECT COALESCE(SUM(qty_on_hand), 0) as total
-                FROM pharmacy_inventory_balance
-                WHERE medicine_id = %s
-            """, [medicine.medicine_id])
-            row = cursor.fetchone()
-            total_on_hand = float(row[0]) if row else 0
-            
-            if total_on_hand <= medicine.reorder_level:
-                critical_stock.append(medicine.medicine_id)
-
-        # 3. Monthly Distribution (Last 12 months)
-        last_year = today - timedelta(days=365)
-        monthly_data = PharmacyTransaction.objects.filter(
-            transaction_type='OUT',
-            transaction_datetime__date__gte=last_year
-        ).annotate(
-            month=TruncMonth('transaction_datetime')
-        ).values('month').annotate(
-            count=Count('transaction_id')
-        ).order_by('month')
-
-        monthly_list = []
-        for m in monthly_data:
-            monthly_list.append({
-                'month': m['month'].strftime('%b'),
-                'count': m['count']
-            })
-
-        # 4. Stock Analysis Breakdown
         stock_adequate = 0
         stock_moderate = 0
         stock_low = 0
         forecast_table = []
+        stock_runway_list = []
 
         for medicine in all_medicines:
             cursor.execute("""
@@ -1949,26 +1950,145 @@ class ForecastingStatsView(APIView):
             on_hand = float(row[0]) if row else 0
             reorder = float(medicine.reorder_level or 0)
 
-            if on_hand > reorder * 2: stock_adequate += 1
-            elif on_hand > reorder: stock_moderate += 1
-            else: stock_low += 1
+            if on_hand <= reorder and on_hand > 0:
+                critical_stock.append(medicine.medicine_id)
 
-            # Simple linear forecast: last 30 days usage * 1.2
-            usage = float(PharmacyTransaction.objects.filter(
-                medicine=medicine,
-                transaction_type='OUT',
-                transaction_datetime__date__gte=last_30_days
-            ).aggregate(total=Sum('qty'))['total'] or 0)
-            
-            forecast = usage * 1.5 # Anticipate growth
-            forecast_table.append({
-                'medicine': medicine.medicine_name,
-                'category': medicine.category,
-                'current_stock': on_hand,
-                'forecasted_demand': forecast,
-                'trend': '+50%' if usage > 0 else '0%',
-                'action': f"Order {int(forecast - on_hand)} units" if forecast > on_hand else "No action needed",
-                'is_urgent': on_hand < reorder
+            if on_hand > reorder * 2:
+                stock_adequate += 1
+            elif on_hand > reorder:
+                stock_moderate += 1
+            else:
+                stock_low += 1
+
+            # Usage calculations for forecasting (exclude internal restocks)
+            current_usage = get_medicine_usage(medicine, last_30_days)
+            prev_usage = get_medicine_usage(medicine, prev_30_days, last_30_days)
+
+            # Fallback: if no 30-day usage, try 90 days and scale to 30-day equivalent
+            has_usage_data = current_usage > 0 or prev_usage > 0
+            if current_usage == 0:
+                usage_90d = get_medicine_usage(medicine, last_90_days)
+                if usage_90d > 0:
+                    current_usage = usage_90d / 3.0
+                    has_usage_data = True
+
+            # Actual growth trend calculation
+            if prev_usage > 0 and current_usage > 0:
+                growth_pct = ((current_usage - prev_usage) / prev_usage) * 100
+                trend_str = f"{'+' if growth_pct >= 0 else ''}{growth_pct:.0f}%"
+            elif current_usage > 0 and prev_usage == 0:
+                trend_str = "+100%"
+            elif not has_usage_data:
+                trend_str = "No usage"
+            else:
+                trend_str = "0%"
+
+            # Daily consumption rate and forecast
+            daily_rate = current_usage / 30.0
+            forecast_next_30 = current_usage * 1.2  # slight growth buffer
+            if prev_usage > 0:
+                forecast_next_30 = (current_usage + prev_usage) / 2 * 1.15
+
+            # Stock runway (days until stockout)
+            days_remaining = None
+            if daily_rate > 0:
+                days_remaining = int(on_hand / daily_rate)
+            elif on_hand == 0:
+                days_remaining = 0
+
+            if on_hand > 0 or has_usage_data:
+                action_text = "Stock adequate"
+                if not has_usage_data:
+                    action_text = "No usage data"
+                elif forecast_next_30 > on_hand:
+                    action_text = f"Order {int(max(0, forecast_next_30 - on_hand))} units"
+
+                forecast_table.append({
+                    'medicine': medicine.medicine_name,
+                    'category': medicine.category,
+                    'current_stock': on_hand,
+                    'reorder_level': reorder,
+                    'current_usage': round(current_usage, 1),
+                    'forecasted_demand': round(forecast_next_30, 1),
+                    'trend': trend_str,
+                    'action': action_text,
+                    'is_urgent': (days_remaining or 999) < 7 and on_hand > 0,
+                    'days_remaining': days_remaining,
+                    'daily_rate': round(daily_rate, 2) if has_usage_data else 0,
+                    'has_usage_data': has_usage_data,
+                })
+
+                if (days_remaining or 999) < 60:
+                    stock_runway_list.append({
+                        'medicine': medicine.medicine_name,
+                        'days_remaining': days_remaining,
+                        'current_stock': on_hand,
+                        'daily_rate': round(daily_rate, 2) if has_usage_data else 0,
+                        'is_critical': (days_remaining or 999) < 7,
+                    })
+
+        # Sort forecast table by urgency (lowest days remaining first, then urgent)
+        forecast_table.sort(key=lambda x: (0 if x['is_urgent'] else 1, x['days_remaining'] if x['days_remaining'] is not None else 99999))
+        stock_runway_list.sort(key=lambda x: x['days_remaining'] if x['days_remaining'] is not None else 99999)
+
+        # 3. Monthly Distribution - actual quantity dispensed, not just transaction count
+        monthly_data = PharmacyTransaction.objects.filter(
+            transaction_type='OUT',
+            transaction_datetime__date__gte=last_year
+        ).exclude(
+            reference_type='CART_RESTOCK'
+        ).annotate(
+            month=TruncMonth('transaction_datetime')
+        ).values('month').annotate(
+            total_qty=Sum('qty'),
+            count=Count('transaction_id')
+        ).order_by('month')
+
+        monthly_list = []
+        for m in monthly_data:
+            monthly_list.append({
+                'month': m['month'].strftime('%b'),
+                'count': m['count'],
+                'total_qty': float(m['total_qty'])
+            })
+
+        # 4. Weekly Trend (last 8 weeks)
+        weekly_data = PharmacyTransaction.objects.filter(
+            transaction_type='OUT',
+            transaction_datetime__date__gte=last_8_weeks
+        ).exclude(
+            reference_type='CART_RESTOCK'
+        ).annotate(
+            week=TruncWeek('transaction_datetime')
+        ).values('week').annotate(
+            total_qty=Sum('qty')
+        ).order_by('week')
+
+        weekly_list = []
+        for w in weekly_data:
+            weekly_list.append({
+                'week': w['week'].strftime('%W'),
+                'label': f"W{w['week'].strftime('%W')}",
+                'total_qty': float(w['total_qty'])
+            })
+
+        # 5. Category Breakdown
+        category_data = PharmacyTransaction.objects.filter(
+            transaction_type='OUT',
+            transaction_datetime__date__gte=last_30_days
+        ).exclude(
+            reference_type='CART_RESTOCK'
+        ).values('medicine__category').annotate(
+            total_qty=Sum('qty'),
+            count=Count('transaction_id')
+        ).order_by('-total_qty')
+
+        category_list = []
+        for c in category_data:
+            category_list.append({
+                'category': c['medicine__category'] or 'Uncategorized',
+                'total_qty': float(c['total_qty']),
+                'count': c['count']
             })
 
         data = {
@@ -1983,15 +2103,18 @@ class ForecastingStatsView(APIView):
                 'low': low_demand
             },
             'monthly_distribution': monthly_list,
+            'weekly_trend': weekly_list,
+            'category_breakdown': category_list,
             'stock_analysis': {
-                'total': all_medicines.count(),
+                'total': len(all_medicines),
                 'adequate': stock_adequate,
                 'moderate': stock_moderate,
                 'low': stock_low
             },
-            'forecast_table': forecast_table[:10] # Top 10 for table
+            'stock_runway': stock_runway_list[:10],
+            'forecast_table': forecast_table[:10]
         }
-        
+
         return Response(data)
 
 class DispenseMedicineView(APIView):
