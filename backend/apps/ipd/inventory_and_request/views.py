@@ -189,8 +189,9 @@ class IpdCartInventoryView(APIView):
 
 class WardInventoryView(APIView):
     """
-    View to search and list medicines/supplies available in the WARD (Location 3)
-    This is used by IPD nurses for the Central Supply tab and Stock Card form.
+    View to search and list SUPPLIES available in the WARD (Location 3)
+    This queries pch.medstock_inventory_balance directly via raw SQL
+    and is used by IPD nurses for the Central Supply tab and Stock Card form.
     """
     permission_classes = [IsAuthenticated]
 
@@ -198,53 +199,63 @@ class WardInventoryView(APIView):
         query = request.query_params.get('q', '').strip()
         category = request.query_params.get('category', '').strip()
 
-        # Filter directly for WARD Location (ID: 3) without requiring PharmacyLocation row
-        queryset = IpdCartInventory.objects.filter(location__location_id=3, qty_on_hand__gt=0)
-
-        if query:
-            queryset = queryset.filter(
-                Q(medicine__medicine_name__icontains=query) |
-                Q(medicine__medicine_code__icontains=query)
-            )
-
-        if category and category != 'All':
-            queryset = queryset.filter(medicine__category=category)
-
-        # Group by medicine to show total stock available across all batches in the ward
-        from django.db.models import Sum, Min
         from django.utils import timezone
         from datetime import timedelta
-
-        # Get threshold for expiry (e.g., 30 days)
         expiry_threshold = timezone.now().date() + timedelta(days=30)
 
-        results = queryset.values(
-            'medicine__medicine_id',
-            'medicine__medicine_name',
-            'medicine__medicine_code',
-            'medicine__category',
-            'medicine__unit',
-            'medicine__reorder_level'
-        ).annotate(
-            total_qty=Sum('qty_on_hand'),
-            earliest_expiry=Min('batch__expiry_date')
-        ).order_by('medicine__medicine_name')
+        sql = """
+            SELECT
+                s.supply_id,
+                s.supply_name,
+                s.supply_code,
+                c.category_name,
+                u.unit_name,
+                s.reorder_level,
+                COALESCE(SUM(bal.qty_on_hand), 0) AS total_qty,
+                MIN(batch.expiry_date) AS earliest_expiry
+            FROM pch.medstock_inventory_balance bal
+            JOIN pch.medstock_supply_items s ON bal.supply_id = s.supply_id
+            LEFT JOIN pch.medstock_categories c ON s.category_id = c.category_id
+            LEFT JOIN pch.medstock_units u ON s.unit_id = u.unit_id
+            LEFT JOIN pch.medstock_supply_batches batch ON bal.batch_id = batch.batch_id
+            WHERE bal.location_id = 3 AND bal.qty_on_hand > 0
+        """
+        params = []
 
-        # Format results for frontend
+        if query:
+            sql += " AND (s.supply_name ILIKE %s OR s.supply_code ILIKE %s)"
+            params.extend([f'%%{query}%%', f'%%{query}%%'])
+
+        if category and category != 'All':
+            sql += " AND c.category_name = %s"
+            params.append(category)
+
+        sql += """
+            GROUP BY s.supply_id, s.supply_name, s.supply_code,
+                     c.category_name, u.unit_name, s.reorder_level
+            ORDER BY s.supply_name
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+
         inventory_data = []
         expiry_alert_count = 0
 
-        for item in results:
-            total_qty = float(item['total_qty'])
-            reorder_level = float(item['medicine__reorder_level'] or 0)
-            expiry_date = item['earliest_expiry']
+        for row in rows:
+            (supply_id, supply_name, supply_code,
+             category_name, unit_name, reorder_level,
+             total_qty, earliest_expiry) = row
 
-            # Match UI status logic
+            total_qty = float(total_qty or 0)
+            reorder_level = float(reorder_level or 0)
+
             status_text = 'Normal'
-            if expiry_date and expiry_date <= timezone.now().date():
+            if earliest_expiry and earliest_expiry <= timezone.now().date():
                 status_text = 'Expired'
                 expiry_alert_count += 1
-            elif expiry_date and expiry_date <= expiry_threshold:
+            elif earliest_expiry and earliest_expiry <= expiry_threshold:
                 status_text = 'Near Expiry'
                 expiry_alert_count += 1
             elif total_qty <= 0:
@@ -253,13 +264,13 @@ class WardInventoryView(APIView):
                 status_text = 'Low Stock'
 
             inventory_data.append({
-                'medicine_id': item['medicine__medicine_id'],
-                'medicine_name': item['medicine__medicine_name'],
-                'medicine_code': item['medicine__medicine_code'],
-                'category': item['medicine__category'],
-                'unit': item['medicine__unit'],
+                'medicine_id': supply_id,
+                'medicine_name': supply_name,
+                'medicine_code': supply_code,
+                'category': category_name or 'Medical Supplies',
+                'unit': unit_name or 'pc',
                 'quantity': total_qty,
-                'expiry_date': expiry_date.isoformat() if expiry_date else 'N/A',
+                'expiry_date': earliest_expiry.isoformat() if earliest_expiry else 'N/A',
                 'status': status_text
             })
 
