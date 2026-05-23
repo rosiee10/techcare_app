@@ -19,7 +19,6 @@ from .models import (
     DispensingSheetItem,
     CartForm,
     CartFormItem,
-    IpdCartInventory
 )
 from .serializers import (
     PatientProfilingBasicSerializer,
@@ -54,7 +53,7 @@ class PharmacyInventoryView(APIView):
         from django.db.models import Sum
         
         # We query PharmacyInventoryBalance directly to get medicines in Location 1 (Main Pharmacy)
-        queryset = IpdCartInventory.objects.filter(location=pharmacy_location, qty_on_hand__gt=0)
+        queryset = PharmacyInventoryBalance.objects.filter(location=pharmacy_location, qty_on_hand__gt=0)
         
         if query:
             queryset = queryset.filter(
@@ -113,7 +112,7 @@ class IpdCartInventoryView(APIView):
             }, status=status.HTTP_404_NOT_FOUND)
 
         # Filter for Cart Location
-        queryset = IpdCartInventory.objects.filter(location=cart_location, qty_on_hand__gt=0)
+        queryset = PharmacyInventoryBalance.objects.filter(location=cart_location, qty_on_hand__gt=0)
         
         if query:
             queryset = queryset.filter(
@@ -190,7 +189,7 @@ class IpdCartInventoryView(APIView):
 class WardInventoryView(APIView):
     """
     View to search and list SUPPLIES available in the WARD (Location 3)
-    This queries pch.medstock_inventory_balance directly via raw SQL
+    This queries pch.medistock_inventory_balance directly via raw SQL
     and is used by IPD nurses for the Central Supply tab and Stock Card form.
     """
     permission_classes = [IsAuthenticated]
@@ -213,11 +212,11 @@ class WardInventoryView(APIView):
                 s.reorder_level,
                 COALESCE(SUM(bal.qty_on_hand), 0) AS total_qty,
                 MIN(batch.expiry_date) AS earliest_expiry
-            FROM pch.medstock_inventory_balance bal
-            JOIN pch.medstock_supply_items s ON bal.supply_id = s.supply_id
-            LEFT JOIN pch.medstock_categories c ON s.category_id = c.category_id
-            LEFT JOIN pch.medstock_units u ON s.unit_id = u.unit_id
-            LEFT JOIN pch.medstock_supply_batches batch ON bal.batch_id = batch.batch_id
+            FROM pch.medistock_inventory_balance bal
+            JOIN pch.medistock_supply_items s ON bal.supply_id = s.supply_id
+            LEFT JOIN pch.medistock_categories c ON s.category_id = c.category_id
+            LEFT JOIN pch.medistock_units u ON s.unit_id = u.unit_id
+            LEFT JOIN pch.medistock_supply_batches batch ON bal.batch_id = batch.batch_id
             WHERE bal.location_id = 3 AND bal.qty_on_hand > 0
         """
         params = []

@@ -5,24 +5,8 @@ from .models import (
     DispensingSheet,
     DispensingSheetItem,
     CartForm,
-    CartFormItem,
-    IpdCartInventory
+    CartFormItem
 )
-
-
-class IpdCartInventorySerializer(serializers.ModelSerializer):
-    """Serializer for Cart Inventory items"""
-    medicine_name = serializers.CharField(source='medicine.medicine_name', read_only=True)
-    medicine_code = serializers.CharField(source='medicine.medicine_code', read_only=True)
-    category = serializers.CharField(source='medicine.category', read_only=True)
-    unit = serializers.CharField(source='medicine.unit', read_only=True)
-    
-    class Meta:
-        model = IpdCartInventory
-        fields = [
-            'medicine_id', 'medicine_name', 'medicine_code', 
-            'category', 'unit', 'qty_on_hand'
-        ]
 
 
 class PatientProfilingBasicSerializer(serializers.ModelSerializer):

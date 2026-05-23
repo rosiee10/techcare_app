@@ -12,17 +12,19 @@ from apps.pharmacy.models import (
 
 class IpdCartInventory(models.Model):
     """
-    Proxy model or view representation for WARD Inventory (Location ID 3)
-    This allows IPD nurses to view stock available specifically in the WARD.
+    Proxy model for Cart / Floor Stock inventory (Location ID 2).
+    Maps to the pharmacy_inventory_balance table.
     """
-    medicine = models.OneToOneField(PharmacyMedicine, on_delete=models.DO_NOTHING, related_name='cart_inventory', primary_key=True)
-    batch = models.ForeignKey(PharmacyStockBatch, on_delete=models.DO_NOTHING)
-    location = models.ForeignKey(PharmacyLocation, on_delete=models.DO_NOTHING)
-    qty_on_hand = models.DecimalField(max_digits=12, decimal_places=2)
+    medicine = models.ForeignKey(PharmacyMedicine, on_delete=models.DO_NOTHING, related_name='cart_inventory', primary_key=True, db_column='medicine_id')
+    batch = models.ForeignKey(PharmacyStockBatch, on_delete=models.DO_NOTHING, db_column='batch_id')
+    location = models.ForeignKey(PharmacyLocation, on_delete=models.DO_NOTHING, db_column='location_id')
+    qty_on_hand = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    trail = models.CharField(max_length=120, blank=True, null=True)
 
     class Meta:
         db_table = 'pharmacy_inventory_balance'
         managed = False
+        unique_together = [['medicine', 'batch', 'location']]
 
     def __str__(self):
         return f"{self.medicine.medicine_name} - Qty: {self.qty_on_hand}"
