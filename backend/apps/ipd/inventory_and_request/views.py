@@ -932,7 +932,7 @@ class StockCardCreateView(APIView):
             if not admission_id and patient_id:
                 with connection.cursor() as cursor:
                     cursor.execute("""
-                        SELECT admission_id FROM pch.ipd_notice_of_admission
+                        SELECT admission_id FROM ipd_notice_of_admission
                         WHERE patient_id = %s AND status IN ('approved', 'pending')
                         ORDER BY admission_date DESC, submitted_date DESC LIMIT 1
                     """, [patient_id])
@@ -977,12 +977,12 @@ class StockCardCreateView(APIView):
             dispensing_sheet.dispensed_date = timezone.now()
             dispensing_sheet.save()
 
-            # Manual insert items into pch.ipd_services_dispensing_items
+            # Manual insert items into ipd_services_dispensing_items
             with connection.cursor() as cursor:
                 # Check if supply_id column exists to be safe
                 cursor.execute("""
                     SELECT column_name FROM information_schema.columns 
-                    WHERE table_schema = 'pch' AND table_name = 'ipd_services_dispensing_items' 
+                    WHERE table_name = 'ipd_services_dispensing_items' 
                     AND column_name = 'supply_id'
                 """)
                 has_supply_id = cursor.fetchone() is not None
@@ -991,7 +991,7 @@ class StockCardCreateView(APIView):
                     if has_supply_id:
                         # If table has supply_id column (some versions do), use it
                         cursor.execute("""
-                            INSERT INTO pch.ipd_services_dispensing_items (
+                            INSERT INTO ipd_services_dispensing_items (
                                 dispensing_id, medicine_id, supply_id, date_requested, dosage, quantity, created_at
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                         """, [
@@ -1001,7 +1001,7 @@ class StockCardCreateView(APIView):
                     else:
                         # Standard insert with medicine_id as NULL
                         cursor.execute("""
-                            INSERT INTO pch.ipd_services_dispensing_items (
+                            INSERT INTO ipd_services_dispensing_items (
                                 dispensing_id, medicine_id, date_requested, dosage, quantity, created_at
                             ) VALUES (%s, %s, %s, %s, %s, %s)
                         """, [
@@ -1018,9 +1018,9 @@ class StockCardCreateView(APIView):
                 # Resolve final admission_id
                 final_admission_id = admission_id or dispensing_sheet.admission_id
                 
-                # Insert into pch.pharmacy_dispense_receipts
+                # Insert into pharmacy_dispense_receipts
                 cursor.execute("""
-                    INSERT INTO pch.pharmacy_dispense_receipts (
+                    INSERT INTO pharmacy_dispense_receipts (
                         receipt_no, ipd_dispensing_id,
                         patient_id, admission_id, from_location_id, dispensing_date,
                         total_amount, trail, received_status
@@ -1045,11 +1045,11 @@ class StockCardCreateView(APIView):
                     quantity = float(item_data.get('quantity') or item_data.get('qty') or 0)
                     drug_name = item_data.get('drug_name', 'Supply Item')
 
-                    # Lookup supply details from pch.medistock_supply_items
+                    # Lookup supply details from medistock_supply_items
                     cursor.execute("""
                         SELECT s.supply_name, COALESCE(s.unit_cost, 0), u.unit_name
-                        FROM pch.medistock_supply_items s
-                        LEFT JOIN pch.medistock_units u ON s.unit_id = u.unit_id
+                        FROM medistock_supply_items s
+                        LEFT JOIN medistock_units u ON s.unit_id = u.unit_id
                         WHERE s.supply_id = %s
                     """, [medicine_id])
                     supply_row = cursor.fetchone()
@@ -1067,9 +1067,9 @@ class StockCardCreateView(APIView):
                     total_cost = unit_cost * quantity
                     total_amount += total_cost
 
-                    # Insert into pch.pharmacy_dispense_receipt_items
+                    # Insert into pharmacy_dispense_receipt_items
                     cursor.execute("""
-                        INSERT INTO pch.pharmacy_dispense_receipt_items (
+                        INSERT INTO pharmacy_dispense_receipt_items (
                             receipt_id, medicine_id, supply_id, item_type,
                             item_code, item_description, quantity, unit,
                             unit_cost, total_cost, from_location_id, line_status, trail
@@ -1080,10 +1080,10 @@ class StockCardCreateView(APIView):
                         unit_cost, total_cost, 3, 'DISPENSED', trail
                     ])
 
-                    # DEDUCT INVENTORY from pch.medistock_inventory_balance
+                    # DEDUCT INVENTORY from medistock_inventory_balance
                     # We pick the oldest batch for deduction (FIFO)
                     cursor.execute("""
-                        SELECT batch_id, qty_on_hand FROM pch.medistock_inventory_balance
+                        SELECT batch_id, qty_on_hand FROM medistock_inventory_balance
                         WHERE supply_id = %s AND location_id = 3 AND qty_on_hand > 0
                         ORDER BY batch_id ASC
                     """, [medicine_id])
@@ -1095,16 +1095,16 @@ class StockCardCreateView(APIView):
                         
                         deduct_now = min(remaining_to_deduct, float(qty_on_hand))
                         cursor.execute("""
-                            UPDATE pch.medistock_inventory_balance
+                            UPDATE medistock_inventory_balance
                             SET qty_on_hand = qty_on_hand - %s
                             WHERE supply_id = %s AND location_id = 3 AND batch_id = %s
                         """, [deduct_now, medicine_id, batch_id])
                         
                         remaining_to_deduct -= deduct_now
 
-                        # RECORD TRANSACTION in pch.medistock_transactions
+                        # RECORD TRANSACTION in medistock_transactions
                         cursor.execute("""
-                            INSERT INTO pch.medistock_transactions (
+                            INSERT INTO medistock_transactions (
                                 transaction_type, supply_id, batch_id, 
                                 from_location_id, to_location_id, qty, 
                                 reference_type, reference_id, source_module, 
@@ -1123,7 +1123,7 @@ class StockCardCreateView(APIView):
 
                 # Update receipt total
                 cursor.execute("""
-                    UPDATE pch.pharmacy_dispense_receipts
+                    UPDATE pharmacy_dispense_receipts
                     SET total_amount = %s WHERE receipt_id = %s
                 """, [total_amount, receipt_id])
 
