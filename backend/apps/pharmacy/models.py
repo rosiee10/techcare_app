@@ -408,3 +408,23 @@ class PharmacyInventoryAdjustmentItem(models.Model):
     class Meta:
         db_table = 'pharmacy_inventory_adjustment_items'
         managed = False
+
+
+class PharmacySupplyPrice(models.Model):
+    """Supply pricing set by pharmacist - matches pch.pharmacy_supply_price exactly"""
+    price_id = models.AutoField(primary_key=True)
+    supply_id = models.IntegerField()
+    batch_id = models.IntegerField(null=True, blank=True)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+    effective_date = models.DateField()
+    is_active = models.BooleanField(default=True)
+    set_by_id = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'pharmacy_supply_price'
+        managed = False
+
+    def __str__(self):
+        return f"Supply {self.supply_id} @ ₱{self.unit_price}"

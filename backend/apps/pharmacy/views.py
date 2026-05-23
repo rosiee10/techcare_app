@@ -16,7 +16,7 @@ from .models import (
     PharmacyGoodsReceipt, PharmacyGoodsReceiptItem,
     PharmacyChargeSlip, PharmacyChargeSlipItem, PharmacyDispenseReceipt,
     PharmacyDispenseReceiptItem, PharmacyInventoryAdjustment,
-    PharmacyTransaction, OpdPrescription
+    PharmacyTransaction, OpdPrescription, PharmacySupplyPrice
 )
 
 from .serializers import (
@@ -1264,7 +1264,7 @@ class PharmacyDispenseReceiptViewSet(viewsets.ModelViewSet):
                         i.receipt_item_id,
                         COALESCE(m.medicine_name, i.item_description) as item_name,
                         i.quantity,
-                        i.unit_cost,
+                        COALESCE(NULLIF(i.unit_cost, 0), sp.unit_price, 0) as unit_cost,
                         i.total_cost,
                         r.dispensing_date,
                         r.created_at,
@@ -1274,6 +1274,12 @@ class PharmacyDispenseReceiptViewSet(viewsets.ModelViewSet):
                     FROM pharmacy_dispense_receipt_items i
                     LEFT JOIN pharmacy_medicines m ON i.medicine_id = m.medicine_id
                     LEFT JOIN pharmacy_dispense_receipts r ON i.receipt_id = r.receipt_id
+                    LEFT JOIN (
+                        SELECT DISTINCT ON (supply_id) supply_id, unit_price
+                        FROM pharmacy_supply_price
+                        WHERE is_active = true
+                        ORDER BY supply_id, effective_date DESC, created_at DESC
+                    ) sp ON i.supply_id = sp.supply_id
                     LEFT JOIN LATERAL (
                         SELECT transaction_datetime
                         FROM pharmacy_transactions t2
@@ -1434,17 +1440,46 @@ class PharmacyDispenseReceiptViewSet(viewsets.ModelViewSet):
             if item:
                 final_qty_val = float(final_qty)
                 old_qty = float(item.quantity)
+                new_unit_cost = float(item_data.get('unit_cost', item.unit_cost or 0))
                 
                 # UPDATE THE quantity COLUMN DIRECTLY FOR BILLING
                 item.quantity = final_qty_val
                 
-                # Update the total cost based on the finalized quantity
-                item.total_cost = float(item.unit_cost) * final_qty_val
+                # Update unit cost if provided (especially for supplies)
+                item.unit_cost = new_unit_cost
+                
+                # Update the total cost based on the finalized quantity and unit cost
+                item.total_cost = new_unit_cost * final_qty_val
                 item.updated_trail = format_trail(request.user, get_client_ip(request))
 
                 # Save the item (No inventory logic here)
                 item.save()
                 total_amount += item.total_cost
+                
+                # PERSIST SUPPLY PRICE for future dispenses
+                if item.supply_id and new_unit_cost > 0:
+                    from django.db import connection
+                    with connection.cursor() as cursor:
+                        # Deactivate previous active prices for this supply
+                        cursor.execute("""
+                            UPDATE pharmacy_supply_price
+                            SET is_active = false, updated_at = NOW()
+                            WHERE supply_id = %s AND is_active = true
+                        """, [item.supply_id])
+                        # Insert new active price
+                        cursor.execute("""
+                            INSERT INTO pharmacy_supply_price (
+                                supply_id, batch_id, unit_price, effective_date,
+                                is_active, set_by_id, created_at, updated_at
+                            ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                        """, [
+                            item.supply_id,
+                            item.batch_id,
+                            new_unit_cost,
+                            timezone.now().date(),
+                            True,
+                            request.user.id
+                        ])
 
                 # SYNC WITH TRANSACTIONS TABLE
                 # This ensures Dispensing Reports are accurate after finalizing billing
