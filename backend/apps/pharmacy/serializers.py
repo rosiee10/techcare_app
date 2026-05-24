@@ -179,12 +179,19 @@ class PharmacyPurchaseRequestItemSerializer(serializers.ModelSerializer):
     """Serializer for PharmacyPurchaseRequestItem"""
     medicine_name_display = serializers.SerializerMethodField()
     goods_receipt_item = serializers.SerializerMethodField()
+    current_unit_cost = serializers.SerializerMethodField()
     
     class Meta:
         model = PharmacyPurchaseRequestItem
         fields = '__all__'
         read_only_fields = ['trail']
     
+    def get_current_unit_cost(self, obj):
+        """Get the current unit cost from the pharmacy_medicines table"""
+        if obj.medicine:
+            return float(obj.medicine.unit_cost) if obj.medicine.unit_cost else 0.0
+        return 0.0
+
     def get_medicine_name_display(self, obj):
         # Return medicine_name field if set (for new medicines not in inventory)
         if obj.medicine_name:
