@@ -325,11 +325,14 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
 
                 # Determine module and item type based on CSD origin
                 if medistock_pr_id:
-                    requested_by_module = 'CENTRAL_SUPPLY'
+                    requested_by_module = 'CSD'
                     item_type = 'SUPPLY'
                 else:
                     requested_by_module = 'PHARMACY'
                     item_type = 'MEDICINE'
+
+                # Extract medistock_item_id (supply_id) if present
+                medistock_item_id = item_data.get('medistock_item_id')
 
                 # Create the item with proper field mapping
                 item = PharmacyPurchaseRequestItem.objects.create(
@@ -338,6 +341,7 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
                     medicine_name=medicine_name,  # Always store medicine name
                     requested_by_module=requested_by_module,
                     item_type=item_type,
+                    medistock_item_id=medistock_item_id,
                     qty_requested=item_data.get('quantity', 0),
                     unit_snapshot=item_data.get('unit', ''),
                     unit_cost_estimate=item_data.get('unit_price', 0),
