@@ -331,8 +331,12 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
                     # Build remarks
                     remarks = item_data.get('remarks', '')
 
-                    # Determine module and item type based on CSD origin
-                    if medistock_pr_id:
+                    # Determine module and item type
+                    # If it matches an existing medicine, treat it as a medicine regardless of source
+                    if medicine:
+                        requested_by_module = 'PHARMACY'
+                        item_type = 'MEDICINE'
+                    elif medistock_pr_id:
                         requested_by_module = 'CENTRAL_SUPPLY'
                         item_type = 'SUPPLY'
                     else:
