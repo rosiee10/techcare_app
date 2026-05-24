@@ -423,12 +423,14 @@ class DispensingSheetListView(generics.ListAPIView):
     """
     List all dispensing sheets for the current nurse
     Supports filtering by status and patient
+    Only includes sheets that have at least one medicine item (medicine_id is not null)
     """
     permission_classes = [IsAuthenticated]
     serializer_class = DispensingSheetListSerializer
     
     def get_queryset(self):
-        queryset = DispensingSheet.objects.all()
+        # Only show sheets that have at least one item with a medicine_id
+        queryset = DispensingSheet.objects.filter(items__medicine_id__isnull=False).distinct()
         
         # Filter by nurse (requested_by)
         user_id = self.request.query_params.get('nurse_id')

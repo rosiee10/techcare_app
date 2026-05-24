@@ -103,7 +103,7 @@ class DispensingSheetListSerializer(serializers.ModelSerializer):
     patient_hospital_id = serializers.CharField(source='patient.hospital_id', read_only=True)
     item_count = serializers.SerializerMethodField()
     ward = serializers.SerializerMethodField()
-    items = DispensingSheetItemSerializer(many=True, read_only=True)
+    items = serializers.SerializerMethodField()
     
     class Meta:
         model = DispensingSheet
@@ -112,8 +112,14 @@ class DispensingSheetListSerializer(serializers.ModelSerializer):
             'request_time', 'status', 'requested_by_name', 'item_count', 'ward', 'items'
         ]
     
+    def get_items(self, obj):
+        # Only return items that have a medicine_id
+        items = obj.items.filter(medicine_id__isnull=False)
+        return DispensingSheetItemSerializer(items, many=True).data
+
     def get_item_count(self, obj):
-        return obj.items.count()
+        # Count only items that have a medicine_id
+        return obj.items.filter(medicine_id__isnull=False).count()
 
     def get_ward(self, obj):
         if obj.admission:
@@ -130,7 +136,7 @@ class DispensingSheetDetailSerializer(serializers.ModelSerializer):
     admission_time = serializers.DateTimeField(source='admission.submitted_date', read_only=True)
     discharge_date = serializers.SerializerMethodField()
     ward = serializers.SerializerMethodField()
-    items = DispensingSheetItemSerializer(many=True, read_only=True)
+    items = serializers.SerializerMethodField()
     total_amount = serializers.SerializerMethodField()
     
     class Meta:
@@ -143,11 +149,15 @@ class DispensingSheetDetailSerializer(serializers.ModelSerializer):
             'items', 'created_at', 'trail', 'total_amount'
         ]
 
+    def get_items(self, obj):
+        # Only return items that have a medicine_id
+        items = obj.items.filter(medicine_id__isnull=False)
+        return DispensingSheetItemSerializer(items, many=True).data
+
     def get_total_amount(self, obj):
-        # Calculate live total from items if sheet is not DISPENSED yet
-        # Once dispensed, it might be using the stored field, but for UI preview we calculate it
+        # Calculate live total only from items that have a medicine_id
         total = 0
-        for item in obj.items.all():
+        for item in obj.items.filter(medicine_id__isnull=False):
             qty = item.quantity or 0
             # Get cost from medicine if unit_cost is not yet set in item
             if item.unit_cost:
