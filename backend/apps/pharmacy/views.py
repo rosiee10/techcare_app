@@ -1778,11 +1778,12 @@ class DashboardStatsView(APIView):
 
         # 4. Pending PRs count
         try:
-            # Check field names in PharmacyPurchaseRequest model
+            # Include DRAFT, SUBMITTED, and FOR_APPROVAL as pending
             pending_prs = PharmacyPurchaseRequest.objects.filter(
-                pr_status='PENDING'
+                pr_status__in=['DRAFT', 'SUBMITTED', 'FOR_APPROVAL']
             ).count()
-        except:
+        except Exception as pr_err:
+            print(f"Error calculating pending PRs: {pr_err}")
             pending_prs = 0
 
         # 5. Today's dispensed
