@@ -265,7 +265,8 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
             validated_data['requested_date'] = date.today()
 
         # Extract medistock_pr_id if present (CSD-linked PR)
-        medistock_pr_id = validated_data.pop('medistock_pr_id', None)
+        # Use initial_data because extra fields are stripped from validated_data
+        medistock_pr_id = self.initial_data.get('medistock_pr_id')
         if medistock_pr_id:
             validated_data['cancel_reason'] = f'CSD_ORIGIN:{medistock_pr_id}'
 
@@ -275,81 +276,93 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
             validated_data['trail'] = trail_value
             validated_data['updated_trail'] = trail_value
 
-        purchase_request = PharmacyPurchaseRequest.objects.create(**validated_data)
+        try:
+            purchase_request = PharmacyPurchaseRequest.objects.create(**validated_data)
+        except Exception as e:
+            print(f"ERROR creating PharmacyPurchaseRequest: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise e
         
         # Create items
         print(f"DEBUG: Creating {len(items_data)} items for PR {purchase_request.pr_no}")
         if items_data:
             for item_data in items_data:
-                medicine_name = item_data.get('medicine_name', '')
-                print(f"DEBUG: Looking up medicine: {medicine_name}")
+                try:
+                    medicine_name = item_data.get('medicine_name', '')
+                    print(f"DEBUG: Looking up medicine: {medicine_name}")
 
-                # Try to find medicine in inventory
-                medicine = None
-                if medicine_name:
-                    medicine = PharmacyMedicine.objects.filter(
-                        medicine_name__iexact=medicine_name
-                    ).first()
+                    # Try to find medicine in inventory
+                    medicine = None
+                    if medicine_name:
+                        medicine = PharmacyMedicine.objects.filter(
+                            medicine_name__iexact=medicine_name
+                        ).first()
 
-                # If medicine not found, auto-create it ONLY for non-CSD items
-                # CSD-derived items should not auto-create medicines to avoid
-                # polluting the pharmacy inventory with non-medicine supplies
-                if not medicine and medicine_name and not medistock_pr_id:
-                    # Generate medicine code from first 4 letters of first word (uppercase)
-                    first_word = medicine_name.split()[0] if medicine_name else ''
-                    medicine_code = first_word[:4].upper() if first_word else 'MED'
-                    if len(medicine_code) < 3:  # Ensure at least 3 characters
-                        medicine_code = medicine_code.ljust(3, 'X')
+                    # If medicine not found, auto-create it ONLY for non-CSD items
+                    # CSD-derived items should not auto-create medicines to avoid
+                    # polluting the pharmacy inventory with non-medicine supplies
+                    if not medicine and medicine_name and not medistock_pr_id:
+                        # Generate medicine code from first 4 letters of first word (uppercase)
+                        first_word = medicine_name.split()[0] if medicine_name else ''
+                        medicine_code = first_word[:4].upper() if first_word else 'MED'
+                        if len(medicine_code) < 3:  # Ensure at least 3 characters
+                            medicine_code = medicine_code.ljust(3, 'X')
 
-                    # Get unit cost from purchase price (default 0 if not provided)
-                    unit_cost = item_data.get('unit_price', 0)
-                    category = item_data.get('category', 'Uncategorized')
-                    if not category or category == '':
-                        category = 'Uncategorized'
+                        # Get unit cost from purchase price (default 0 if not provided)
+                        unit_cost = item_data.get('unit_price', 0)
+                        category = item_data.get('category', 'Uncategorized')
+                        if not category or category == '':
+                            category = 'Uncategorized'
 
-                    medicine = PharmacyMedicine.objects.create(
-                        medicine_name=medicine_name,
-                        medicine_code=medicine_code,
-                        unit=item_data.get('unit', 'Piece'),
-                        category=category,
-                        reorder_level=100,  # Default reorder level
-                        unit_cost=unit_cost,  # Store the purchase unit price
-                        is_active=True
+                        medicine = PharmacyMedicine.objects.create(
+                            medicine_name=medicine_name,
+                            medicine_code=medicine_code,
+                            unit=item_data.get('unit', 'Piece'),
+                            category=category,
+                            reorder_level=100,  # Default reorder level
+                            unit_cost=unit_cost,  # Store the purchase unit price
+                            is_active=True
+                        )
+                        print(f"DEBUG: Auto-created new medicine: {medicine.medicine_id} with code {medicine_code}")
+
+                    print(f"DEBUG: Found/Created medicine: {medicine}")
+
+                    # Build remarks
+                    remarks = item_data.get('remarks', '')
+
+                    # Determine module and item type based on CSD origin
+                    if medistock_pr_id:
+                        requested_by_module = 'CSD'
+                        item_type = 'SUPPLY'
+                    else:
+                        requested_by_module = 'PHARMACY'
+                        item_type = 'MEDICINE'
+
+                    # Extract medistock_item_id (supply_id) if present
+                    medistock_item_id = item_data.get('medistock_item_id')
+
+                    # Create the item with proper field mapping
+                    item = PharmacyPurchaseRequestItem.objects.create(
+                        purchase_request=purchase_request,
+                        medicine=medicine,  # Can be null for new medicines
+                        medicine_name=medicine_name,  # Always store medicine name
+                        requested_by_module=requested_by_module,
+                        item_type=item_type,
+                        medistock_item_id=medistock_item_id,
+                        qty_requested=item_data.get('quantity', 0),
+                        unit_snapshot=item_data.get('unit', ''),
+                        unit_cost_estimate=item_data.get('unit_price', 0),
+                        line_total_estimate=item_data.get('total_price', 0),
+                        remarks=remarks if remarks else None,
+                        trail=trail_value if request else None
                     )
-                    print(f"DEBUG: Auto-created new medicine: {medicine.medicine_id} with code {medicine_code}")
-
-                print(f"DEBUG: Found/Created medicine: {medicine}")
-
-                # Build remarks
-                remarks = item_data.get('remarks', '')
-
-                # Determine module and item type based on CSD origin
-                if medistock_pr_id:
-                    requested_by_module = 'CSD'
-                    item_type = 'SUPPLY'
-                else:
-                    requested_by_module = 'PHARMACY'
-                    item_type = 'MEDICINE'
-
-                # Extract medistock_item_id (supply_id) if present
-                medistock_item_id = item_data.get('medistock_item_id')
-
-                # Create the item with proper field mapping
-                item = PharmacyPurchaseRequestItem.objects.create(
-                    purchase_request=purchase_request,
-                    medicine=medicine,  # Can be null for new medicines
-                    medicine_name=medicine_name,  # Always store medicine name
-                    requested_by_module=requested_by_module,
-                    item_type=item_type,
-                    medistock_item_id=medistock_item_id,
-                    qty_requested=item_data.get('quantity', 0),
-                    unit_snapshot=item_data.get('unit', ''),
-                    unit_cost_estimate=item_data.get('unit_price', 0),
-                    line_total_estimate=item_data.get('total_price', 0),
-                    remarks=remarks if remarks else None,
-                    trail=trail_value if request else None
-                )
-                print(f"DEBUG: Created item: {item.pr_item_id}")
+                    print(f"DEBUG: Created item: {item.pr_item_id}")
+                except Exception as e:
+                    print(f"ERROR creating PharmacyPurchaseRequestItem: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    raise e
         
         return purchase_request
 

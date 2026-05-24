@@ -196,6 +196,7 @@ class PharmacyPurchaseRequestItem(models.Model):
     MODULE_CHOICES = [
         ('PHARMACY', 'Pharmacy'),
         ('CENTRAL_SUPPLY', 'Central Supply'),
+        ('CSD', 'Central Supply Department'),
     ]
     
     ITEM_TYPES = [
