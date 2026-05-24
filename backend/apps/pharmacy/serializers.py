@@ -333,7 +333,7 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
 
                     # Determine module and item type based on CSD origin
                     if medistock_pr_id:
-                        requested_by_module = 'CSD'
+                        requested_by_module = 'CENTRAL_SUPPLY'
                         item_type = 'SUPPLY'
                     else:
                         requested_by_module = 'PHARMACY'
