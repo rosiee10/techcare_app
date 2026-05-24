@@ -299,10 +299,21 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
                             medicine_name__iexact=medicine_name
                         ).first()
 
+                    # Extract category and check if it's a medicine category
+                    category = item_data.get('category', 'Uncategorized')
+                    if not category or category == '':
+                        category = 'Uncategorized'
+                    
+                    medicine_categories = [
+                        'Analgesics', 'Antibiotics', 'Antivirals', 'Vitamins', 'Supplements', 
+                        'Cardiovascular', 'Dermatological', 'Gastrointestinal', 'Hormonal', 
+                        'Respiratory', 'Neurological', 'Ophthalmic', 'Emergency'
+                    ]
+                    is_medicine_category = category in medicine_categories
+
                     # If medicine not found, auto-create it ONLY for non-CSD items
-                    # CSD-derived items should not auto-create medicines to avoid
-                    # polluting the pharmacy inventory with non-medicine supplies
-                    if not medicine and medicine_name and not medistock_pr_id:
+                    # OR if it's a CSD item that the pharmacist specifically categorized as a medicine
+                    if not medicine and medicine_name and (not medistock_pr_id or is_medicine_category):
                         # Generate medicine code from first 4 letters of first word (uppercase)
                         first_word = medicine_name.split()[0] if medicine_name else ''
                         medicine_code = first_word[:4].upper() if first_word else 'MED'
@@ -311,20 +322,21 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
 
                         # Get unit cost from purchase price (default 0 if not provided)
                         unit_cost = item_data.get('unit_price', 0)
-                        category = item_data.get('category', 'Uncategorized')
-                        if not category or category == '':
-                            category = 'Uncategorized'
 
-                        medicine = PharmacyMedicine.objects.create(
-                            medicine_name=medicine_name,
-                            medicine_code=medicine_code,
-                            unit=item_data.get('unit', 'Piece'),
-                            category=category,
-                            reorder_level=100,  # Default reorder level
-                            unit_cost=unit_cost,  # Store the purchase unit price
-                            is_active=True
-                        )
-                        print(f"DEBUG: Auto-created new medicine: {medicine.medicine_id} with code {medicine_code}")
+                        try:
+                            medicine = PharmacyMedicine.objects.create(
+                                medicine_name=medicine_name,
+                                medicine_code=medicine_code,
+                                unit=item_data.get('unit', 'Piece'),
+                                category=category,
+                                reorder_level=100,  # Default reorder level
+                                unit_cost=unit_cost,  # Store the purchase unit price
+                                is_active=True
+                            )
+                            print(f"DEBUG: Auto-created new medicine: {medicine.medicine_id} with code {medicine_code}")
+                        except Exception as med_err:
+                            print(f"ERROR auto-creating medicine: {str(med_err)}")
+                            # Continue without medicine link if creation fails (will store name only)
 
                     print(f"DEBUG: Found/Created medicine: {medicine}")
 
@@ -332,8 +344,8 @@ class PharmacyPurchaseRequestSerializer(serializers.ModelSerializer):
                     remarks = item_data.get('remarks', '')
 
                     # Determine module and item type
-                    # If it matches an existing medicine, treat it as a medicine regardless of source
-                    if medicine:
+                    # If it matches an existing medicine or medicine category, treat as PHARMACY/MEDICINE
+                    if medicine or is_medicine_category:
                         requested_by_module = 'PHARMACY'
                         item_type = 'MEDICINE'
                     elif medistock_pr_id:
