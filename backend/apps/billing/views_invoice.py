@@ -126,11 +126,15 @@ def billing_invoices_list(request):
             receipts = _dictfetchall(cursor)
 
     except (OperationalError, ProgrammingError) as e:
-        logger.error(f"billing_invoices_list DB error: {e}")
-        return Response({'success': False, 'message': f'Database error: {e}'}, status=500)
+        import traceback
+        error_detail = str(e)
+        logger.error(f"billing_invoices_list DB error: {error_detail}\n{traceback.format_exc()}")
+        return Response({'success': False, 'message': f'Database error: {error_detail}'}, status=500)
     except Exception as e:
-        logger.error(f"billing_invoices_list unexpected error: {e}")
-        return Response({'success': False, 'message': f'Server error: {e}'}, status=500)
+        import traceback
+        error_detail = str(e)
+        logger.error(f"billing_invoices_list unexpected error: {error_detail}\n{traceback.format_exc()}")
+        return Response({'success': False, 'message': f'Server error: {error_detail}'}, status=500)
 
     if not receipts:
         return Response({'success': True, 'data': []})
@@ -1498,7 +1502,7 @@ def cashier_ipd_invoices(request):
                     nm.patient_name                   AS patient_name,
                     nm.hospital_no                    AS hospital_no,
                     'Non-Med'                         AS classification,
-                    COALESCE(nm.grand_total, 0)       AS grand_total,
+                    COALESCE(nm.total_amount, 0)       AS grand_total,
                     nm.status                         AS status,
                     nm.updated_at::date               AS billing_date,
                     nm.admission_date                 AS admission_date,

@@ -12,7 +12,7 @@ class DiagnosisMaintenanceViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
-        queryset = DiagnosisMaintenance.objects.filter(is_active=True).order_by('code')
+        queryset = DiagnosisMaintenance.objects.all().order_by('code')
         search = self.request.query_params.get('search', None)
         if search:
             queryset = queryset.filter(
@@ -22,8 +22,7 @@ class DiagnosisMaintenanceViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active'])
+        instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

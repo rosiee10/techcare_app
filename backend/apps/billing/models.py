@@ -54,7 +54,6 @@ class DiagnosisMaintenance(models.Model):
     trail = models.CharField(max_length=120, blank=True, null=True)
     updated_trail = models.CharField(max_length=120, blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'diagnosis_maintenance'

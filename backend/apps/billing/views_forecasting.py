@@ -106,7 +106,7 @@ def _fetch_weekly_billed(weeks=12):
 
             SELECT
                 TO_CHAR(DATE_TRUNC('week', updated_at), 'YYYY-"W"IW') AS wk,
-                COALESCE(SUM(grand_total), 0)::float                    AS amt
+                COALESCE(SUM(total_amount), 0)::float                    AS amt
             FROM pch.soa_nonmed
             WHERE updated_at >= %s
             GROUP BY wk
@@ -171,7 +171,7 @@ def _fetch_weekly_collected(weeks=12):
 
         SELECT
             TO_CHAR(DATE_TRUNC('week', updated_at), 'YYYY-"W"IW') AS wk,
-            COALESCE(SUM(grand_total), 0)::float                    AS amt
+            COALESCE(SUM(total_amount), 0)::float                    AS amt
         FROM pch.soa_nonmed
         WHERE status = 'CASHIER'
           AND updated_at >= %s
@@ -592,15 +592,15 @@ def cashier_financial_kpis(request):
             cur.execute("""
                 SELECT
                     COUNT(*)::int                                                              AS cnt,
-                    COALESCE(SUM(grand_total), 0)::float                                      AS billed,
-                    COALESCE(SUM(CASE WHEN soa_status='CASHIER'  THEN grand_total ELSE 0 END),0)::float AS collected,
-                    COALESCE(SUM(CASE WHEN soa_status NOT IN ('CASHIER','CANCELLED') THEN grand_total ELSE 0 END),0)::float AS pending
+                    COALESCE(SUM(total_amount), 0)::float                                      AS billed,
+                    COALESCE(SUM(CASE WHEN soa_status='CASHIER'  THEN total_amount ELSE 0 END),0)::float AS collected,
+                    COALESCE(SUM(CASE WHEN soa_status NOT IN ('CASHIER','CANCELLED') THEN total_amount ELSE 0 END),0)::float AS pending
                 FROM (
-                    SELECT grand_total, soa_status FROM pch.soa_nbb
+                    SELECT grand_total AS total_amount, soa_status FROM pch.soa_nbb
                     UNION ALL
-                    SELECT grand_total, soa_status FROM pch.soa_philhealth
+                    SELECT grand_total AS total_amount, soa_status FROM pch.soa_philhealth
                     UNION ALL
-                    SELECT grand_total, status AS soa_status FROM pch.soa_nonmed
+                    SELECT total_amount, status AS soa_status FROM pch.soa_nonmed
                 ) ipd_all
             """)
             row = cur.fetchone()
@@ -609,13 +609,13 @@ def cashier_financial_kpis(request):
             cur.execute("""
                 SELECT classification,
                        COUNT(*)::int,
-                       COALESCE(SUM(grand_total),0)::float
+                       COALESCE(SUM(total_amount),0)::float
                 FROM (
-                    SELECT 'NBB'         AS classification, grand_total FROM pch.soa_nbb
+                    SELECT 'NBB'         AS classification, grand_total AS total_amount FROM pch.soa_nbb
                     UNION ALL
-                    SELECT classification,                  grand_total FROM pch.soa_philhealth
+                    SELECT classification,                  grand_total AS total_amount FROM pch.soa_philhealth
                     UNION ALL
-                    SELECT classification,                  grand_total FROM pch.soa_nonmed
+                    SELECT classification,                  total_amount FROM pch.soa_nonmed
                 ) cls_all
                 GROUP BY classification
             """)
@@ -639,9 +639,9 @@ def cashier_financial_kpis(request):
             cur.execute("""
                 SELECT
                     COUNT(*)::int,
-                    COALESCE(SUM(total_bill_amount),0)::float,
+                    COALESCE(SUM(total_amount),0)::float,
                     COALESCE(SUM(balance_amount),0)::float,
-                    COALESCE(SUM(total_bill_amount - balance_amount),0)::float,
+                    COALESCE(SUM(total_amount - balance_amount),0)::float,
                     COUNT(CASE WHEN due_date < CURRENT_DATE
                                 AND pn_status NOT IN ('FULLY_PAID','CANCELLED') THEN 1 END)::int,
                     COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE
@@ -657,7 +657,7 @@ def cashier_financial_kpis(request):
             cur.execute("""
                 SELECT
                     COUNT(*)::int,
-                    COALESCE(SUM(total_bill_amount),0)::float,
+                    COALESCE(SUM(total_amount),0)::float,
                     COUNT(CASE WHEN status='APPROVED'  THEN 1 END)::int,
                     COUNT(CASE WHEN status='PENDING'   THEN 1 END)::int,
                     COUNT(CASE WHEN status='COMPLETED' THEN 1 END)::int,
@@ -682,13 +682,13 @@ def cashier_financial_kpis(request):
 
         ipd_weekly = _weekly("""
             SELECT TO_CHAR(DATE_TRUNC('week', updated_at),'YYYY-"W"IW') wk,
-                   COALESCE(SUM(grand_total),0)::float amt
+                   COALESCE(SUM(total_amount),0)::float amt
             FROM (
-                SELECT updated_at, grand_total FROM pch.soa_nbb        WHERE soa_status='CASHIER' AND updated_at>=%s
+                SELECT updated_at, grand_total AS total_amount FROM pch.soa_nbb        WHERE soa_status='CASHIER' AND updated_at>=%s
                 UNION ALL
-                SELECT updated_at, grand_total FROM pch.soa_philhealth WHERE soa_status='CASHIER' AND updated_at>=%s
+                SELECT updated_at, grand_total AS total_amount FROM pch.soa_philhealth WHERE soa_status='CASHIER' AND updated_at>=%s
                 UNION ALL
-                SELECT updated_at, grand_total FROM pch.soa_nonmed     WHERE status='CASHIER'     AND updated_at>=%s
+                SELECT updated_at, total_amount FROM pch.soa_nonmed     WHERE status='CASHIER'     AND updated_at>=%s
             ) x GROUP BY wk ORDER BY wk
         """, [start, start, start])
 
@@ -805,7 +805,7 @@ def cashier_dashboard_summary(request):
                     UNION ALL
                     SELECT grand_total FROM pch.soa_philhealth WHERE payment_status = 'PAID'
                     UNION ALL
-                    SELECT grand_total FROM pch.soa_nonmed     WHERE payment_status = 'PAID'
+                    SELECT total_amount FROM pch.soa_nonmed     WHERE payment_status = 'PAID'
                     UNION ALL
                     SELECT grand_total FROM pch.soa_opd        WHERE payment_status = 'PAID'
                 ) t
@@ -893,7 +893,7 @@ def cashier_dashboard_summary(request):
                         COALESCE(nm.bill_no, 'N/A'),
                         nm.patient_name,
                         nm.classification,
-                        nm.grand_total,
+                        nm.total_amount,
                         CASE nm.status
                             WHEN 'SENT TO CASHIER' THEN 'Pending'
                             WHEN 'CASHIER'         THEN 'Pending'
@@ -944,4 +944,7 @@ def cashier_dashboard_summary(request):
         })
 
     except Exception as e:
-        return Response({'success': False, 'message': str(e)}, status=500)
+        import traceback
+        error_detail = str(e)
+        print(f"[DASHBOARD SUMMARY ERROR] {error_detail}\n{traceback.format_exc()}")
+        return Response({'success': False, 'message': f'Database error: {error_detail}'}, status=500)
