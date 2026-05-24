@@ -309,6 +309,25 @@ def confirm_delivery(request):
                 SET pr_status = 'DELIVERED', updated_at = NOW()
                 WHERE pr_id = %s
             """, [pr_id])
+
+            # 5. If this PR originated from CSD, update the CSD PR status to DELIVERED too
+            cursor.execute("""
+                SELECT cancel_reason FROM pharmacy_purchase_requests WHERE pr_id = %s
+            """, [pr_id])
+            pr_row = cursor.fetchone()
+            if pr_row and pr_row[0] and 'CSD_ORIGIN:' in pr_row[0]:
+                try:
+                    csd_pr_id_str = pr_row[0].split(':')[1]
+                    csd_pr_id = int(csd_pr_id_str)
+                    cursor.execute("""
+                        UPDATE medistock_purchase_requests 
+                        SET pr_status = 'DELIVERED', updated_at = NOW()
+                        WHERE pr_id = %s
+                    """, [csd_pr_id])
+                    print(f"DEBUG: Linked CSD PR {csd_pr_id} status updated to DELIVERED")
+                except Exception as csd_err:
+                    print(f"ERROR updating linked CSD PR status: {csd_err}")
+
         return Response({
             'success': True,
             'message': 'Delivery confirmed and inventory restocked successfully',
